@@ -38,10 +38,17 @@ permanent client errors abort rather than retrying an incompatible payload.
 
 ```bash
 python run_match_strict.py --models "$MODEL,heuristic,$MODEL,heuristic" --hands 12 --seed 7
+python run_match_strict.py --teams "$MODEL_A" "$MODEL_B" --hands 12 --seed 7
 python run_llm_vs_baseline.py --models "$MODEL" --hands 12 --seeds 0,1,2 --workers 1 --out batch.json
 python run_benchmark_strict.py --models "$MODEL,heuristic,$MODEL,heuristic" --hands 12 --seeds 0,1,2 --workers 1
 python dashboard.py --port 8000 --file progress.json
 ```
+
+`--teams TEAM_A TEAM_B` is a convenience for the 4-agent conflict-of-interest
+match: it expands to the seat matrix `[TEAM_A, TEAM_B, TEAM_A, TEAM_B]`, i.e.
+the first model occupies both Team A seats (0+2) and the second both Team B
+seats (1+3). Partners still cannot see each other's cards, so signalling is the
+only cooperation channel.
 
 Batch jobs preserve errors and exit nonzero if any match fails. Give separate
 concurrent batch processes different `PROGRESS_FILE` values. The dashboard serves

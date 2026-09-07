@@ -29,17 +29,31 @@ from apifail import (FatalAPIError, LLMCallFailure, MatchTimeout, DegradedMatch,
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models",
-                    default="deepseek-v4-flash,heuristic,deepseek-v4-flash,heuristic",
-                    help="4 specs: model-name (nan), provider:model via tuple in "
-                         "code, or heuristic/random for baseline seats")
+                    help="4 specs (comma-separated): model-name (nan), "
+                         "provider:model, or heuristic/random for baseline seats. "
+                         "Seats: [TeamA seat0, TeamB seat1, TeamA seat2, TeamB seat3]")
+    ap.add_argument("--teams", nargs=2, metavar=("TEAM_A", "TEAM_B"), default=None,
+                    help="2 specs, one per team; expands to a 2v2 conflict matrix "
+                         "(TeamA seats 0+2, TeamB seats 1+3). Either --models (4 "
+                         "specs) or --teams (2 specs) must be given.")
     ap.add_argument("--hands", type=int, default=12)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=None)
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
-    models = [m.strip() for m in args.models.split(",")]
-    if len(models) != 4 or any(not m for m in models):
-        ap.error("--models requires exactly four non-empty comma-separated specs")
+    if args.teams is not None:
+        if args.models is not None:
+            ap.error("provide exactly one of --models or --teams, not both")
+        a, b = (t.strip() for t in args.teams)
+        if not a or not b:
+            ap.error("--teams requires two non-empty model specs")
+        models = [a, b, a, b]           # conflict-of-interest 2v2 matrix
+    else:
+        if args.models is None:
+            ap.error("provide --models (4 specs) or --teams (2 specs)")
+        models = [m.strip() for m in args.models.split(",")]
+        if len(models) != 4 or any(not m for m in models):
+            ap.error("--models requires exactly four non-empty comma-separated specs")
     if args.hands <= 0:
         ap.error("--hands must be positive")
     print(f"Match: {' vs '.join(models)}  "
