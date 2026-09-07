@@ -12,15 +12,12 @@ from __future__ import annotations
 import argparse
 from random import Random
 import json
-import os
-import time
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 from mus_engine import MusEngine
 from run_match_strict import run_match_strict
-
-PROGRESS_FILE = os.environ.get("PROGRESS_FILE", "progress.json")
+from batch_runner import run_batch, write_progress as _write, PROGRESS_FILE
 
 
 def generate_jobs(models: list[str], hands: int, seeds: list[int]) -> list[dict]:
@@ -30,13 +27,6 @@ def generate_jobs(models: list[str], hands: int, seeds: list[int]) -> list[dict]
          "elapsed": None, "hand": 0, "msg": "queued"}
         for i, s in enumerate(seeds)
     ]
-
-
-def _write(progress: dict) -> None:
-    tmp = PROGRESS_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(progress, f, indent=2)
-    os.replace(tmp, PROGRESS_FILE)
 
 
 def run_job(job: dict, progress: dict, lock: threading.Lock) -> None:
@@ -123,15 +113,9 @@ def main():
           f"models={models}, hands={args.hands}")
     print(f"Progress -> {PROGRESS_FILE}\n")
 
-    lock = threading.Lock()
-    with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = [ex.submit(run_job, job, progress, lock) for job in jobs]
-        for f in as_completed(futs):
-            f.result()
-
-    with lock:
-        progress["status"] = "error" if any(j["status"] == "error" for j in jobs) else "done"
-        _write(progress)
+    run_batch(jobs, args.workers, run_job, progress)
+    progress["status"] = "error" if any(j["status"] == "error" for j in jobs) else "done"
+    _write(progress)
     print(f"Matches finished: {progress['status']}.")
 
     results = [{key: j.get(key) for key in (

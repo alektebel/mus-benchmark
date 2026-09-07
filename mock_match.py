@@ -15,6 +15,7 @@ from deck import Card
 from mus_engine import MusEngine, CARD_POINTS, RANK_MUS
 import apifail
 import run_match_strict as harness
+import prompt_builder
 import senas
 
 
@@ -116,7 +117,7 @@ def run_scenario(mode, hands=12, seed=7):
          patch.object(harness.requests, 'post', side_effect=post), \
          patch.object(apifail, 'BREAKER', apifail.CircuitBreaker()), \
          patch.object(apifail, '_sleep_backoff', return_value=0), \
-         patch.object(harness, '_channel_block', side_effect=observe_channel):
+         patch.object(prompt_builder, '_channel_block', side_effect=observe_channel):
         try:
             result = harness.run_match_strict(
                 engine, ['mock-model'] * 4, hands=hands, seed=seed,

@@ -6,6 +6,7 @@ from deck import Card
 from groupchat import Channels, public_cost
 from mus_engine import MusEngine, Phase
 import run_match_strict as harness
+import agents
 
 
 class StrictHarnessTests(unittest.TestCase):
@@ -78,7 +79,7 @@ class StrictHarnessTests(unittest.TestCase):
             harness.run_hand(self.engine, agents, self.channels, self.stats, deadline=0)
 
     def test_provider_cli_spec(self):
-        with patch.object(harness, 'StrictAgent') as agent:
+        with patch.object(agents, 'StrictAgent') as agent:
             harness._make_agent('nvidia:example/model', 0, 0)
         agent.assert_called_once_with('A0', 'example/model', 0, 0, 'nvidia')
 

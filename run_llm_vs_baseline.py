@@ -18,22 +18,12 @@ from __future__ import annotations
 import argparse
 from random import Random
 import json
-import os
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from mus_engine import MusEngine
 from run_match_strict import run_match_strict, MAX_RESP, REASONING_MODE
-
-PROGRESS_FILE = os.environ.get("PROGRESS_FILE", "progress.json")
-
-
-def _write(progress: dict) -> None:
-    tmp = PROGRESS_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(progress, f, indent=2)
-    os.replace(tmp, PROGRESS_FILE)
+from batch_runner import run_batch, write_progress as _write, PROGRESS_FILE
 
 
 def run_job(job: dict, progress: dict, lock: threading.Lock) -> None:
@@ -132,12 +122,7 @@ def main():
           f"reasoning={REASONING_MODE}, max_tokens={MAX_RESP}")
     print(f"Progress -> {PROGRESS_FILE}\n")
 
-    lock = threading.Lock()
-    with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = [ex.submit(run_job, job, progress, lock) for job in jobs]
-        for f in as_completed(futs):
-            f.result()
-
+    run_batch(jobs, args.workers, run_job, progress)
     progress["status"] = "error" if any(j["status"] == "error" for j in jobs) else "done"
     _write(progress)
 
