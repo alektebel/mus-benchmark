@@ -12,10 +12,10 @@ betting rounds. The engine validates declarations, discards and turn order.
 Its locally documented rules variant is described in the engine module;
 this project does not certify conformance to an external rulebook.
 
-The older `engine.py`, `run_match.py` and `run_match_gc.py` implement a different,
-simplified scoring protocol. Their results must not be pooled with strict
-results. Historical documentation and baseline figures are in
-[docs/legacy.md](docs/legacy.md).
+The older simplified scoring protocol (`engine.py`, `run_match.py`,
+`run_match_gc.py`) has been removed; it is documented historically in
+[docs/legacy.md](docs/legacy.md), and its results must not be pooled with
+strict results.
 
 ## Offline validation
 
