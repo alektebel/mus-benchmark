@@ -23,9 +23,11 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import queue
+import re
 import secrets
 import threading
 import time
@@ -50,6 +52,9 @@ from live_ui import INDEX_HTML
 MAX_REJECT_RETRIES = int(os.environ.get("MAX_REJECT_RETRIES", "4"))
 HUMAN_TURN_TIMEOUT = float(os.environ.get("HUMAN_TURN_TIMEOUT", "300"))
 RESULTS_DIR = os.environ.get("MUS_RESULTS_DIR", "results")
+CARDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "assets", "cards")
+CARD_FILE_RE = re.compile(r"^card_(?:back|[a-z]+_\d{2})\.svg$")
 ALLOW_SEÑA_BLUFFS = os.environ.get("ALLOW_SEÑA_BLUFFS", "1").strip().lower() \
     in ("1", "true", "yes")
 
@@ -634,13 +639,37 @@ class LiveHTTP(BaseHTTPRequestHandler):
     def log_message(self, *a):  # silence request noise
         pass
 
-    def _send(self, code: int, body: bytes, ctype: str):
+    def _send(self, code: int, body: bytes, ctype: str,
+              cache: str = "no-store", compress: bool = False):
+        headers = [("Content-Type", ctype),
+                   ("Content-Length", str(len(body))),
+                   ("Cache-Control", cache)]
+        if compress and len(body) > 1024 and \
+                "gzip" in self.headers.get("Accept-Encoding", ""):
+            body = gzip.compress(body, 6)
+            headers = [("Content-Type", ctype),
+                       ("Content-Length", str(len(body))),
+                       ("Cache-Control", cache),
+                       ("Content-Encoding", "gzip"),
+                       ("Vary", "Accept-Encoding")]
         self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        for k, v in headers:
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def _serve_card(self, name: str) -> bool:
+        """Serve an optimized Spanish-deck SVG from assets/cards/."""
+        if not CARD_FILE_RE.match(name) or os.sep in name or name.startswith("."):
+            return False
+        path = os.path.join(CARDS_DIR, name)
+        if not os.path.isfile(path):
+            return False
+        with open(path, "rb") as fh:
+            body = fh.read()
+        self._send(200, body, "image/svg+xml; charset=utf-8",
+                   cache="public, max-age=604800", compress=True)
+        return True
 
     def _json(self, obj, code: int = 200):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf8"),
@@ -651,6 +680,10 @@ class LiveHTTP(BaseHTTPRequestHandler):
         token = (parse_qs(parsed.query).get("token") or [None])[0]
         if parsed.path in ("/", "/index.html"):
             self._send(200, INDEX_HTML.encode("utf8"), "text/html; charset=utf-8")
+        elif parsed.path.startswith("/cards/"):
+            name = os.path.basename(parsed.path[len("/cards/"):])
+            if not self._serve_card(name):
+                self._send(404, b"not found", "text/plain")
         elif parsed.path == "/events":
             self._sse(token)
         elif parsed.path == "/snapshot":

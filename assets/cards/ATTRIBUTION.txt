@@ -1,0 +1,14 @@
+Spanish playing-card artwork
+============================
+
+Source: gjenkins20/spanish-playing-cards-svg
+        https://github.com/gjenkins20/spanish-playing-cards-svg
+Original artwork: Basquetteur, via Wikimedia Commons
+        https://commons.wikimedia.org/wiki/Category:Spanish_playing_cards
+License: CC BY-SA 3.0
+        https://creativecommons.org/licenses/by-sa/3.0/
+
+The files in this directory are that repository's SVGs, reduced with
+SVGO (multipass, coordinate precision 1) for web delivery. The artwork
+is unchanged; only redundant metadata and path precision were trimmed.
+They are redistributed here under the same CC BY-SA 3.0 license.
