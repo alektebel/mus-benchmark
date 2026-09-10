@@ -1,11 +1,14 @@
-"""Strict multi-LLM mus harness entry point (CLI).
+"""Kernel (real-time sena) mus harness entry point (CLI).
 
-The harness logic lives in `agents.py` (LLM + baseline seats), `match.py`
-(one turn / hand / match loop), and `prompt_builder.py` (model prompts).
-This module wires them together and exposes the CLI.
+Experimental, runs alongside the strict harness. Same turn-gated engine and
+same one-call-per-decision budget, but senas live on a virtual clock: idle
+partners gesture DURING a deliberation window and the addressee sees them in
+its NEXT window unless the TTL expires first (batched delivery). LLM seats
+start gesture-silent and must DECLARE a signal policy; baseline seats carry
+the rule-based reference policy (signalling floor).
 
 CLI:
-  python run_match_strict.py --models "deepseek-v4-flash,heuristic,deepseek-v4-flash,heuristic" --hands 12
+  python run_match_kernel.py --models "heuristic,random,heuristic,random" --hands 12 --seed 7
 """
 from __future__ import annotations
 
@@ -13,17 +16,12 @@ import argparse
 import json
 from random import Random
 
-import requests
-import apifail
-
 from mus_engine import MusEngine
-from agents import (StrictAgent, BaselineSeat, _make_agent, _default_legal,
-                    MAX_RESP, REASONING_MODE, THINK_BUDGET)
-from prompt_builder import build_prompt, _channel_block, redact_card_talk
-from match import (run_match_strict, run_hand, play_turn, reset_hand_channels,
-                   _emit, _record_event, _print_turn)
-from apifail import (FatalAPIError, LLMCallFailure, MatchTimeout, DegradedMatch,
-                     TurnLimitExceeded)
+import apifail
+from apifail import FatalAPIError, LLMCallFailure, MatchTimeout, DegradedMatch, \
+    TurnLimitExceeded
+from agents import THINK_BUDGET, REASONING_MODE
+from virtual_kernel import run_match_kernel, KERNEL_WINDOW, KERNEL_WINDOW_JITTER
 
 
 def main():
@@ -33,11 +31,14 @@ def main():
                          "provider:model, or heuristic/random for baseline seats. "
                          "Seats: [TeamA seat0, TeamB seat1, TeamA seat2, TeamB seat3]")
     ap.add_argument("--teams", nargs=2, metavar=("TEAM_A", "TEAM_B"), default=None,
-                    help="2 specs, one per team; expands to a 2v2 conflict matrix "
-                         "(TeamA seats 0+2, TeamB seats 1+3). Either --models (4 "
-                         "specs) or --teams (2 specs) must be given.")
+                    help="2 specs, one per team; expands to 2v2 (A seats 0+2, "
+                         "B seats 1+3).")
     ap.add_argument("--hands", type=int, default=12)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--window", type=float, default=None,
+                    help=f"decision window in virtual time (default {KERNEL_WINDOW})")
+    ap.add_argument("--jitter", type=float, default=None,
+                    help=f"relative window jitter 0..1 (default {KERNEL_WINDOW_JITTER})")
     ap.add_argument("--out", default=None)
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
@@ -47,7 +48,7 @@ def main():
         a, b = (t.strip() for t in args.teams)
         if not a or not b:
             ap.error("--teams requires two non-empty model specs")
-        models = [a, b, a, b]           # conflict-of-interest 2v2 matrix
+        models = [a, b, a, b]
     else:
         if args.models is None:
             ap.error("provide --models (4 specs) or --teams (2 specs)")
@@ -56,14 +57,23 @@ def main():
             ap.error("--models requires exactly four non-empty comma-separated specs")
     if args.hands <= 0:
         ap.error("--hands must be positive")
-    print(f"Match: {' vs '.join(models)}  "
+    import virtual_kernel
+    if args.window is not None:
+        virtual_kernel.KERNEL_WINDOW = args.window
+    if args.jitter is not None:
+        virtual_kernel.KERNEL_WINDOW_JITTER = args.jitter
+    print(f"KERNEL match: {' vs '.join(models)}  "
           f"(teams: {models[0]}+{models[2]} | {models[1]}+{models[3]})")
-    print(f"hands={args.hands} seed={args.seed} "
+    print(f"hands={args.hands} seed={args.seed} window={virtual_kernel.KERNEL_WINDOW} "
+          f"jitter={virtual_kernel.KERNEL_WINDOW_JITTER} "
           f"reasoning={REASONING_MODE} think_budget={THINK_BUDGET}\n")
-    res = run_match_strict(MusEngine(rng=Random(args.seed)), models, hands=args.hands,
-                           seed=args.seed, verbose=args.verbose)
+    res = run_match_kernel(MusEngine(rng=Random(args.seed)), models,
+                           hands=args.hands, seed=args.seed, verbose=args.verbose)
     print(f"\nResult: vacas {res['vacas_a']}-{res['vacas_b']}  hands={res['hands']} "
-          f"status={res['status']}")
+          f"status={res['status']}  clock={res['virtual_clock']}")
+    s = res["signals"]
+    print(f"Señas: published={s['published']} caught={s['caught']} "
+          f"missed={s['missed']}")
     print(f"Token usage: in={res['usage']['tokens_in']} "
           f"out={res['usage']['tokens_out']} (reasoning={res['usage']['reasoning']}) "
           f"calls={res['usage']['calls']} fallbacks={res['usage']['fallbacks']}"

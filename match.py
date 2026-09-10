@@ -1,6 +1,7 @@
 """Match loop for the strict mus harness: one turn, one hand, one match."""
 from __future__ import annotations
 
+import os
 import time
 
 from mus_engine import MusEngine, Phase, IllegalAction, TEAM_OF
@@ -12,6 +13,16 @@ from apifail import (FatalAPIError, LLMCallFailure, MatchTimeout, DegradedMatch,
                      TurnLimitExceeded, MATCH_TIMEOUT, MAX_TURNS_PER_HAND)
 
 
+# Rejection retries before a turn falls back to a default legal action. Lower
+# values cut API-call amplification on real runs but increase fallback share.
+MAX_REJECT_RETRIES = int(os.environ.get("MAX_REJECT_RETRIES", "4"))
+
+# When true, a gesture that does not match the sender's hand is STILL broadcast
+# (a bluff) so opponents can be misled and partners must weigh signal credibility.
+# When false, false gestures are dropped as before (truthful signal channel).
+ALLOW_SEÑA_BLUFFS = os.environ.get("ALLOW_SEÑA_BLUFFS", "1").strip().lower() in ("1", "true", "yes")
+
+
 def _record_event(stats: dict | None, text: str) -> None:
     if stats is not None:
         stats.setdefault("events", []).append(text)
@@ -19,7 +30,12 @@ def _record_event(stats: dict | None, text: str) -> None:
 
 def _emit(agent, action: dict, ch: Channels, engine: MusEngine,
           stats: dict | None = None, hand=None) -> None:
-    """Publish accepted actions; validate gestures against the decision-time hand."""
+    """Publish accepted actions.
+
+    `message` is spoken at the table (public); `thought` is the agent's private
+    one-paragraph reasoning and is never broadcast. Gestures may bluff when
+    ``ALLOW_SEÑA_BLUFFS`` is enabled.
+    """
     msg = action.get("message")
     if isinstance(msg, str) and msg.strip():
         original = " ".join(msg.split()[:20])[:120]
@@ -28,6 +44,9 @@ def _emit(agent, action: dict, ch: Channels, engine: MusEngine,
             agent.redactions += 1
             _record_event(stats, f"[{agent.name}] CHAT REDACTED")
         ch.say_public(agent.seat, agent.name, clean)
+    thought = action.get("thought")
+    if isinstance(thought, str) and thought.strip():
+        agent.thoughts.append(thought.strip())
     agent.want_signals = action.get("read_signals") is True
     sig = action.get("signal")
     if isinstance(sig, dict):  # Accept older clients as well as the prompt schema.
@@ -41,7 +60,10 @@ def _emit(agent, action: dict, ch: Channels, engine: MusEngine,
     truthful = sena_truthful(
         gesture, engine.hands[agent.seat] if hand is None else hand, engine)
     agent.senas_log.append((gesture, truthful))
-    if truthful:
+    if truthful or ALLOW_SEÑA_BLUFFS:
+        if not truthful:
+            agent.bluffs += 1
+            _record_event(stats, f"[{agent.name}] SEÑA BLUFF sent: {gesture}")
         ch.send_signal(agent.seat, None, gesture)
     else:
         agent.invalid_signals += 1
@@ -65,7 +87,7 @@ def play_turn(engine: MusEngine, agent, ch: Channels,
     legal = engine.legal_actions(agent.seat)
     prompt = build_prompt(agent, engine, ch, legal)
     hand = list(engine.hands[agent.seat])
-    for attempt in range(4):
+    for attempt in range(MAX_REJECT_RETRIES):
         retry_prompt = prompt
         if last_error:
             retry_prompt += f"\nYour last action was REJECTED: {last_error}. Return a legal action."
@@ -85,7 +107,7 @@ def play_turn(engine: MusEngine, agent, ch: Channels,
                 print(f"  [seat{agent.seat}] REJECTED: {e}")
     # last-resort fallback -- counted, never silent
     agent.fallbacks += 1
-    stats["events"].append(f"[{agent.name}] FALLBACK after 4 rejects: {last_error}")
+    stats["events"].append(f"[{agent.name}] FALLBACK after {MAX_REJECT_RETRIES} rejects: {last_error}")
     stats["fallbacks"] += 1
     if (stats["llm_turns"] >= FALLBACK_MIN_TURNS
             and stats["fallbacks"] / stats["llm_turns"] > MAX_FALLBACK_RATE):
@@ -197,7 +219,9 @@ def run_match_strict(engine: MusEngine, models: list, hands: int = 12, seed: int
                     "fallbacks": a.fallbacks, "api_errors": a.api_errors,
                     "rejections": a.rejections, "redactions": a.redactions,
                     "invalid_signals": a.invalid_signals,
+                    "bluffs": a.bluffs,
                     "senas": a.senas_log,
+                    "thoughts": a.thoughts,
                     "tokens_in": a.tokens_in, "tokens_out": a.tokens_out,
                     "reasoning": a.reasoning} for a in agents],
         "events": stats["events"],

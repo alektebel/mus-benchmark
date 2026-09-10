@@ -5,9 +5,8 @@ from dataclasses import dataclass
 
 PALOS = ("oros", "copas", "espadas", "bastos")
 
-# Physical deck order, used for the strict engine's mus-rank comparisons and
-# the strict engine defines its own mus-rank equivalence (rey=tres, as=dos)
-# in RANK_MUS.
+# Physical deck order. The strict engine defines its own mus-rank
+# equivalences in mus_engine (PARES_RANK, RANK_GRANDE, RANK_CHICA).
 RANK_ORDER = (
     "as", "dos", "tres", "cuatro", "cinco", "seis",
     "siete", "sota", "caballo", "rey",

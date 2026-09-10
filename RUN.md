@@ -20,8 +20,10 @@ OpenRouter is not configured in the current strict harness.
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `REASONING_MODE` | `off` | `omit` leaves the provider field out; other values are sent as `reasoning_effort` |
-| `MAX_RESP` / `MAX_RESP_CAP` | 1600 / 6144 | Response budget and truncation escalation ceiling |
+| `REASONING_MODE` | `minimal` | `omit` leaves the provider field out; other values are sent as `reasoning_effort`. Keep low so verbose reasoning does not truncate the answer |
+| `THINK_BUDGET` | 600 | Per-thought token ceiling sent as `max_tokens` and told to the model; escalation bound is `3x` |
+| `ALLOW_SEÑA_BLUFFS` | `1` | Broadcast gestures even when they do not match the sender's hand (`1`/`0`). Off = truthful signal channel |
+| `MAX_RESP` / `MAX_RESP_CAP` | `THINK_BUDGET` / `THINK_BUDGET*3` | Legacy response budget and truncation escalation ceiling |
 | `NAN_TIMEOUT` | 180 seconds | Per-request timeout for either provider |
 | `RESP_RETRIES` | 3 | Malformed/truncated response attempts |
 | `CALL_ATTEMPTS` | 6 | HTTP/transport attempts |
@@ -69,3 +71,28 @@ Existing JSON/log results predate the review fixes and remain historical artifac
 The perception budget currently records expenditure but permits listening on
 credit after zero. A hard attention-budget experiment would require a separately
 specified protocol change. See [README.md](README.md).
+
+## Live table (play vs LLMs in the browser)
+
+```bash
+python live_server.py --port 8123 \
+    --seats human,glm5.3-flash,deepseek-v4-flash,heuristic --hands 12
+```
+
+Open the printed seat URLs (one per human seat, token-authenticated); a
+tokenless visit is a spectator. The sidebar has a Bench tab that aggregates
+everything under `--results-dir` (default `results/`): tournament summaries
+(`run_tournament.py --out results/tournament`) and strict batch outputs
+(`run_llm_vs_baseline.py --out ...`). Poll it during long runs — the tab
+refreshes every 20 s and shows the vacas leaderboard plus per-match rows.
+`GET /api/results` exposes the same aggregation as JSON.
+
+## Rank equivalence fix (2026-09-10)
+
+The engine previously treated `as` and `dos` as the same rank ("8 reyes y 8
+ases"), which (a) counted `as+dos` as pares and (b) misplaced `tres/rey` at
+the bottom of the Chica ordering. The engine now uses Fournier-aligned maps:
+the only rank equivalence is **tres = rey**; pares require two equal cards
+within that scheme; Grande orders `dos > as`; Chica orders `as < dos <
+tres/rey < cuatro ... < caballo`. The prompt builder's rules note was updated
+to match. Any results produced before this fix are invalid and were deleted.

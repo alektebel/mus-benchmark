@@ -24,9 +24,15 @@ PROVIDERS = {
     "nvidia": ("https://integrate.api.nvidia.com/v1", "NVIDIA_KEY"),
 }
 DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "nan")
-MAX_RESP = int(os.environ.get("MAX_RESP", "1600"))
-MAX_RESP_CAP = int(os.environ.get("MAX_RESP_CAP", "6144"))
-REASONING_MODE = os.environ.get("REASONING_MODE", "off")  # off|omit|none|low|medium|high
+# Per-thought token ceiling. The model must reason briefly and emit only the
+# action JSON, so a decision stays fast and reasoning never truncates it.
+THINK_BUDGET = int(os.environ.get("THINK_BUDGET", "600"))
+MAX_RESP = int(os.environ.get("MAX_RESP", str(THINK_BUDGET)))  # legacy alias
+MAX_RESP_CAP = int(os.environ.get("MAX_RESP_CAP", str(THINK_BUDGET * 3)))
+# Keep reasoning to a minimum: verbose chains-of-thought blow the budget and get
+# truncated (finish=length), forcing slow escalation retries. "minimal" is the
+# lowest accepted value that yields ~0 reasoning tokens on the nan models.
+REASONING_MODE = os.environ.get("REASONING_MODE", "minimal")
 TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.4"))
 MAX_FALLBACK_RATE = float(os.environ.get("MAX_FALLBACK_RATE", "0.15"))
 FALLBACK_MIN_TURNS = int(os.environ.get("FALLBACK_MIN_TURNS", "10"))
@@ -59,6 +65,8 @@ class SeatBase:
         self.want_signals = False    # open the señas API next turn?
         self.invalid_signals = 0
         self.senas_log = []          # (turn, gesture, truthful) for review
+        self.bluffs = 0              # false gestures sent when bluffing is allowed
+        self.thoughts = []           # private one-paragraph reasoning, never broadcast
         self.rejections = 0          # illegal actions / false declarations
         self.redactions = 0          # chat messages that leaked card info
         self.verbose = False
@@ -103,7 +111,7 @@ class StrictAgent(SeatBase):
 
     # ---------------- one decision ----------------
     def decide(self, prompt: str) -> dict:
-        max_tokens = MAX_RESP
+        max_tokens = min(THINK_BUDGET, MAX_RESP_CAP)
         last_err: Exception | None = None
         for resp_attempt in range(RESP_RETRIES):
             def _call():
@@ -160,6 +168,7 @@ class StrictAgent(SeatBase):
             try:
                 data = json.loads(_extract_json(content))
                 if isinstance(data, dict):
+                    self.last_io = {"prompt": prompt, "raw": content}
                     return data
                 last_err = ValueError(f"JSON is not an object: {type(data)}")
             except json.JSONDecodeError as e:

@@ -22,7 +22,7 @@ import threading
 import time
 
 from mus_engine import MusEngine
-from run_match_strict import run_match_strict, MAX_RESP, REASONING_MODE
+from run_match_strict import run_match_strict, REASONING_MODE, THINK_BUDGET
 from batch_runner import run_batch, write_progress as _write, PROGRESS_FILE
 
 
@@ -114,12 +114,12 @@ def main():
     progress = {"status": "running", "started": time.time(), "total": len(jobs),
                 "completed": 0, "done_hands": 0, "running_a": 0, "running_b": 0,
                 "jobs": jobs, "log": [],
-                "config": {"reasoning_mode": REASONING_MODE, "max_tokens": MAX_RESP,
+                "config": {"reasoning_mode": REASONING_MODE, "think_budget": THINK_BUDGET,
                            "opponent": args.opponent, "hands": args.hands}}
     _write(progress)
     print(f"LLM-vs-baseline: {len(jobs)} matches ({len(names)} models x {len(seeds)} seeds), "
           f"{args.workers} worker(s), opponent={args.opponent}, "
-          f"reasoning={REASONING_MODE}, max_tokens={MAX_RESP}")
+          f"reasoning={REASONING_MODE}, think_budget={THINK_BUDGET}")
     print(f"Progress -> {PROGRESS_FILE}\n")
 
     run_batch(jobs, args.workers, run_job, progress)

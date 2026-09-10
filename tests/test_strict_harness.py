@@ -29,6 +29,41 @@ class StrictHarnessTests(unittest.TestCase):
         self.assertNotIn('39', self.channels.public[0].text)
         self.assertEqual(self.agent.redactions, 1)
 
+    def test_false_gesture_is_broadcast_as_bluff_when_allowed(self):
+        import match as matchmod
+        from senas import sena_truthful
+        hand = [Card('rey', 'oros'), Card('cuatro', 'copas'),
+                Card('cinco', 'bastos'), Card('seis', 'espadas')]
+        self.assertFalse(sena_truthful('muerde-el-labio-inferior', hand, self.engine))
+        with patch.object(matchmod, 'ALLOW_SEÑA_BLUFFS', True):
+            harness._emit(self.agent, {'signal': 'muerde-el-labio-inferior'},
+                          self.channels, self.engine, hand=hand)
+        self.assertEqual(len(self.channels.signals), 1)
+        self.assertEqual(self.agent.bluffs, 1)
+        self.assertEqual(self.agent.invalid_signals, 0)
+
+    def test_false_gesture_is_dropped_when_bluffs_disabled(self):
+        import match as matchmod
+        from senas import sena_truthful
+        hand = [Card('rey', 'oros'), Card('cuatro', 'copas'),
+                Card('cinco', 'bastos'), Card('seis', 'espadas')]
+        self.assertFalse(sena_truthful('muerde-el-labio-inferior', hand, self.engine))
+        with patch.object(matchmod, 'ALLOW_SEÑA_BLUFFS', False):
+            harness._emit(self.agent, {'signal': 'muerde-el-labio-inferior'},
+                          self.channels, self.engine, hand=hand)
+        self.assertEqual(len(self.channels.signals), 0)
+        self.assertEqual(self.agent.bluffs, 0)
+        self.assertEqual(self.agent.invalid_signals, 1)
+
+    def test_private_thought_is_recorded_but_not_broadcast(self):
+        harness._emit(self.agent,
+                      {'message': 'Hola', 'thought': 'Weak hand, pass and let partner bid.',
+                       'signal': None},
+                      self.channels, self.engine)
+        self.assertEqual(self.agent.thoughts, ['Weak hand, pass and let partner bid.'])
+        self.assertEqual(len(self.channels.public), 1)
+        self.assertEqual(len(self.channels.signals), 0)
+
     def test_signal_uses_hand_before_discard(self):
         for seat in range(4):
             self.engine.apply(seat, {'action': 'mus'})

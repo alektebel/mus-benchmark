@@ -20,9 +20,41 @@ class EngineRegressionTests(unittest.TestCase):
         self.engine.deal()
 
     def test_four_kind_counts_as_two_equal_pairs(self):
+        # tres counts as rey, so rey+tres+rey+tres is a duples of reyes
         four = hand("rey", "tres", "rey", "tres")
-        duples = hand("rey", "tres", "as", "dos")
-        self.assertGreater(self.engine._pares_value(four), self.engine._pares_value(duples))
+        single = hand("rey", "tres", "as", "dos")
+        self.assertEqual(self.engine._pares_value(four)[0], 3)
+        self.assertEqual(self.engine._pares_value(single)[0], 1)
+        self.assertGreater(self.engine._pares_value(four), self.engine._pares_value(single))
+
+    def test_as_dos_is_not_a_pair_but_as_as_is(self):
+        # Fournier pares: as and dos are different ranks (only tres=rey)
+        self.assertEqual(self.engine._pares_value(hand("as", "dos", "siete", "cinco"))[0], 0)
+        self.assertEqual(self.engine._pares_value(hand("as", "as", "siete", "cinco"))[0], 1)
+        self.assertEqual(self.engine._pares_value(hand("dos", "dos", "as", "as"))[0], 3)
+
+    def test_pares_rank_follows_grande_order(self):
+        # pares de reyes beat pares de caballos; doses beat aces
+        self.assertGreater(self.engine._pares_value(hand("rey", "rey", "siete", "cinco")),
+                           self.engine._pares_value(hand("caballo", "caballo", "siete", "cinco")))
+        self.assertGreater(self.engine._pares_value(hand("dos", "dos", "siete", "cinco")),
+                           self.engine._pares_value(hand("as", "as", "siete", "cinco")))
+
+    def test_grande_orders_dos_over_as_and_tres_equals_rey(self):
+        self.assertGreater(self.engine._grande_value([Card("dos", "oros")]),
+                           self.engine._grande_value([Card("as", "oros")]))
+        self.assertEqual(self.engine._grande_value(hand("tres", "cuatro", "cinco", "seis"))[0],
+                         self.engine._grande_value(hand("rey", "cuatro", "cinco", "seis"))[0])
+
+    def test_chica_orders_as_best_and_tres_before_cuatro(self):
+        # for chica, as (1) beats dos (2); tres/rey (3) beats cuatro (4)
+        self.assertGreater(self.engine._chica_value([Card("as", "oros")]),
+                           self.engine._chica_value([Card("dos", "oros")]))
+        self.assertGreater(self.engine._chica_value([Card("tres", "oros")]),
+                           self.engine._chica_value([Card("cuatro", "oros")]))
+        # caballo (11) is the worst chica card
+        self.assertGreater(self.engine._chica_value([Card("sota", "oros")]),
+                           self.engine._chica_value([Card("caballo", "oros")]))
 
     def test_both_false_declarations_are_rejected_without_mutation(self):
         for lance, cards in ((2, hand("rey", "tres", "as", "cuatro")),
@@ -69,8 +101,15 @@ class EngineRegressionTests(unittest.TestCase):
         self.assertEqual(policy.act(self.engine, 0, self.engine.legal_actions(0)), before)
 
     def test_mus_equivalent_pair_is_kept(self):
+        # rey counts as tres: the rey-tres pair is kept, the low cards tossed
+        cards = hand("rey", "tres", "cuatro", "cinco")
+        self.assertEqual(HeuristicPolicy._discard(self.engine, cards),
+                         [str(c) for c in cards[2:]])
+
+    def test_discard_all_four_when_no_pairs_and_no_high_cards(self):
         cards = hand("as", "dos", "cuatro", "cinco")
-        self.assertEqual(HeuristicPolicy._discard(self.engine, cards), [str(c) for c in cards[2:]])
+        self.assertEqual(HeuristicPolicy._discard(self.engine, cards),
+                         [str(c) for c in cards])
 
     def test_seeded_self_play_terminates_and_conserves_cards(self):
         policy = RandomPolicy(2)

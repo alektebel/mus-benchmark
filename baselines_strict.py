@@ -11,7 +11,7 @@ from collections import Counter
 from random import Random
 
 from mus_engine import (MusEngine, Phase, TEAM_OF, JUEGO_TOTALS, JUEGO_RANK,
-                        LANCE_NAMES, RANK_MUS)
+                        LANCE_NAMES, RANK_GRANDE, RANK_CHICA)
 
 
 def _juego_total(engine, hand):
@@ -22,7 +22,7 @@ def _hand_quality(engine, hand) -> float:
     total = _juego_total(engine, hand)
     juego_score = JUEGO_RANK.get(total, 0) / 10.0 if total in JUEGO_TOTALS else 0.0
     pares = engine._pares_value(hand)[0] / 3.0
-    grande = sum(RANK_MUS[c.rank] for c in hand) / 36.0
+    grande = sum(RANK_GRANDE[c.rank] for c in hand) / 48.0
     return 0.4 * juego_score + 0.35 * pares + 0.25 * grande
 
 
@@ -30,9 +30,9 @@ def _lance_strength(engine, lance, seat) -> float:
     # Policies have the same private-card visibility as LLM seats.
     best = engine.hands[seat]
     if lance == "Grande":
-        return sum(RANK_MUS[c.rank] for c in best) / 36.0
+        return sum(RANK_GRANDE[c.rank] for c in best) / 48.0
     if lance == "Chica":
-        return 1.0 - sum(RANK_MUS[c.rank] for c in best) / 36.0
+        return 1.0 - sum(RANK_CHICA[c.rank] for c in best) / 44.0
     if lance == "Pares":
         p = engine._pares_value(best)
         base = {0: 0.05, 1: 0.40, 2: 0.70, 3: 0.95}[p[0]]
@@ -99,12 +99,13 @@ class HeuristicPolicy:
 
     @staticmethod
     def _discard(engine, hand):
-        counts = Counter(RANK_MUS[c.rank] for c in hand)
-        keep = [c for c in hand if counts[RANK_MUS[c.rank]] >= 2 or RANK_MUS[c.rank] >= 7]
+        counts = Counter(RANK_GRANDE[c.rank] for c in hand)
+        keep = [c for c in hand
+                if counts[RANK_GRANDE[c.rank]] >= 2 or RANK_GRANDE[c.rank] >= 7]
         keep = keep[:3]
         toss = [c for c in hand if c not in keep]
         if not toss:
-            toss = sorted(hand, key=lambda c: RANK_MUS[c.rank])[:1]
+            toss = sorted(hand, key=lambda c: RANK_GRANDE[c.rank])[:1]
         return [str(c) for c in toss]
 
     def _envite(self, engine, seat, team, legal):

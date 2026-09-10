@@ -2,8 +2,9 @@
 
 Sources: Fournier "Cómo jugar al mus" + Don Naipe señas (blog 2019).
 Key rules implemented:
-  - Values: rey/tres/caballo/sota=10, 4-7 natural, dos=as=1.
-  - ORDER equivalence: tres ties rey (top), dos ties as (bottom) -> "8 reyes y 8 ases".
+  - Values: rey/tres/caballo/sota=10, 4-7 natural, dos=as=1 (points only).
+  - Rank equivalence for order/pares: only tres = rey. as and dos are distinct
+    (Grande: dos > as; Chica: as < dos); as+dos is never a pair.
   - Pares: par < medias < duples; duples = two pairs OR four of a kind (by mus-rank).
   - Juego 31 > 32 > 40 > 39 > ... > 33; nobody has juego -> Punto (best <= 30, 1 piedra).
   - Mus: one "no hay mus" blocks ALL discards; discards may repeat ("cuantas veces
@@ -35,9 +36,16 @@ CARD_POINTS = {
     "seis": 6, "siete": 7, "sota": 10, "caballo": 10, "rey": 10,
 }
 
-# mus ordering: rey=tres (9) ... cuatro(3), dos=as (0). "8 reyes y 8 ases".
-RANK_MUS = {"as": 0, "dos": 0, "tres": 9, "cuatro": 3, "cinco": 4,
-            "seis": 5, "siete": 6, "sota": 7, "caballo": 8, "rey": 9}
+# Fournier-style equivalences: tres counts as rey; every other rank is its own
+# class (as+dos is NOT a pair). RANK_GRANDE provides both the equivalence
+# classes and the comparison order for pares (reyes beat caballos, etc.).
+# Grande ordering: tres=rey on top, then caballo, sota, 7..4, dos beats as.
+RANK_GRANDE = {"tres": 12, "rey": 12, "caballo": 11, "sota": 10, "siete": 7,
+               "seis": 6, "cinco": 5, "cuatro": 4, "dos": 2, "as": 1}
+# Chica ordering (lower card wins; tres=rey valued 3): higher = better card.
+# Sorted descending, so the best (lowest) card is compared first.
+RANK_CHICA = {"as": 11, "dos": 10, "tres": 9, "rey": 9, "cuatro": 8,
+              "cinco": 7, "seis": 6, "siete": 5, "sota": 2, "caballo": 1}
 
 JUEGO_TOTALS = tuple(range(31, 41))
 JUEGO_RANK = {31: 10, 32: 9, 40: 8, 39: 7, 38: 6, 37: 5, 36: 4, 35: 3, 34: 2, 33: 1}
@@ -151,13 +159,13 @@ class MusEngine:
         return sum(card_points.get(c.rank, 0) for c in cards)
 
     def _grande_value(self, hand):
-        return tuple(sorted((RANK_MUS[c.rank] for c in hand), reverse=True))
+        return tuple(sorted((RANK_GRANDE[c.rank] for c in hand), reverse=True))
 
     def _chica_value(self, hand):
-        return tuple(sorted((9 - RANK_MUS[c.rank] for c in hand), reverse=True))
+        return tuple(sorted((RANK_CHICA[c.rank] for c in hand), reverse=True))
 
     def _pares_value(self, hand):
-        counts = Counter(RANK_MUS[c.rank] for c in hand)
+        counts = Counter(RANK_GRANDE[c.rank] for c in hand)
         paired = [r for r, n in counts.items() if n >= 2]
         if any(n >= 4 for n in counts.values()):
             r = next(r for r, n in counts.items() if n >= 4)
