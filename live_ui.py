@@ -363,10 +363,94 @@ aside{display:flex;flex-direction:column;min-height:0;
 }
 @media (max-width:960px){
   .stage{grid-template-columns:1fr}
-  aside{border-left:none;border-top:1px solid var(--color-neutral-800);
-    max-height:46vh}
+  aside{position:static;border:1px solid var(--color-neutral-800);
+    max-height:none}
   #board{min-height:0}
 }
+
+/* ══ full-page shell (design reference: "Mus contra la máquina") ═════════
+   The live table is the centre of a marketing-style page: nav, hero with a
+   fan of the real deck, La mesa, La baraja gallery and los cuatro lances. */
+#app{display:block;height:auto;min-height:100vh}
+.topbar{gap:var(--space-4)}
+.nav-links{display:flex;gap:var(--space-4);margin-left:auto;font-size:13px}
+.nav-links a{color:var(--color-neutral-300)}
+.nav-links a:hover{color:var(--color-accent-200)}
+.topbar #status{margin-left:0}
+
+.wrap{max-width:1180px;margin:0 auto;padding:var(--space-6)}
+
+/* hero */
+.hero{max-width:1180px;margin:0 auto;padding:var(--space-8) var(--space-6);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+  gap:var(--space-8);align-items:center}
+.hero .eyebrow{font-size:12px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--color-accent-400);margin-bottom:var(--space-3)}
+.hero h1{font-size:clamp(38px,5.2vw,66px);line-height:1.02;margin:0 0 var(--space-4);
+  font-weight:500;text-wrap:pretty}
+.hero p{max-width:44ch;color:var(--color-neutral-300);font-size:16px;
+  line-height:1.55;margin:0 0 var(--space-6)}
+.hero .hero-cta{display:flex;gap:var(--space-3);flex-wrap:wrap}
+.hero-fan{position:relative;min-height:300px}
+.hero-fan .hcard{position:absolute;bottom:0;width:122px;height:186px;
+  border-radius:9px;overflow:hidden;background:#f4eee1;
+  box-shadow:var(--shadow-md)}
+.hero-fan .hcard img{width:100%;height:100%;object-fit:contain}
+
+/* sections */
+.section{max-width:1180px;margin:0 auto;padding:var(--space-8) var(--space-6)}
+.section-head{display:flex;align-items:flex-end;gap:var(--space-4);
+  flex-wrap:wrap;margin-bottom:var(--space-4)}
+.section-head h2{font-size:28px;font-weight:500;white-space:nowrap;flex:0 0 auto}
+.rule{height:1px;flex:1;min-width:40px;background:linear-gradient(to right,
+  transparent,var(--color-divider) 48px,
+  var(--color-divider) calc(100% - 48px),transparent)}
+.lead{max-width:56ch;color:var(--color-neutral-400);font-size:14px;
+  line-height:1.6;margin:0 0 var(--space-4)}
+
+/* score group in the La mesa head */
+.scoregroup{display:flex;align-items:center;gap:var(--space-4);
+  font-family:var(--font-heading)}
+.scoregroup .score{text-align:right}
+.scoregroup .score.th{text-align:left}
+.scoregroup .k{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--color-neutral-400)}
+.scoregroup .v{font-size:26px;line-height:1}
+.scoregroup .sub{font-size:11px;color:var(--color-neutral-500)}
+.scoregroup .vline{width:1px;height:34px;background:var(--color-divider)}
+.scoregroup .meta{display:flex;gap:4px;font-size:11px}
+
+/* mesa: table + sidebar, in flow so the page can scroll */
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 360px;
+  gap:var(--space-4);align-items:start}
+#tablewrap{overflow:visible;padding:0}
+#board{height:auto;min-height:620px}
+aside{position:sticky;top:72px;max-height:calc(100vh - 88px);
+  border:1px solid var(--color-neutral-800);border-left:1px solid var(--color-neutral-800);
+  border-radius:var(--radius-lg);background:var(--color-surface);overflow:hidden}
+
+/* La baraja gallery */
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.filters button{cursor:pointer;background:none;font-family:var(--font-body)}
+.gallery{display:flex;flex-wrap:wrap;gap:var(--space-3)}
+.gallery .pcard{width:84px;height:128px}
+.gallery .pcard img{object-fit:contain}
+
+/* los cuatro lances */
+.lances{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:var(--space-4)}
+.lance .card-title{font-family:var(--font-heading);font-size:17px;font-weight:500}
+.lance .card-body{font-size:13px;color:var(--color-neutral-300);line-height:1.6}
+.rulecols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  gap:var(--space-6);margin-top:var(--space-6)}
+.rulecols h3{font-size:17px;font-weight:500;margin:0 0 8px}
+.rulecols p{color:var(--color-neutral-300);font-size:14px;line-height:1.6}
+
+footer.pagefoot{border-top:1px solid var(--color-divider);padding:var(--space-6);
+  text-align:center;font-size:12px;line-height:1.7;color:var(--color-neutral-500)}
+
+/* the live action bar rides the bottom while the page scrolls */
+#actionbar{position:sticky;bottom:0;z-index:30}
 </style>
 </head>
 <body>
@@ -374,24 +458,55 @@ aside{display:flex;flex-direction:column;min-height:0;
   <header class="topbar">
     <div class="nav-brand">
       <span class="mark">MUS</span>
-      <span class="sub">EN VIVO</span>
+      <span class="sub">CONTRA LA MÁQUINA</span>
     </div>
-    <div class="scorechip">
-      <span class="lbl">Equipo A</span>
-      <span class="pts" id="pa">0</span>
-      <span class="vacas">vacas <span class="vdots" id="va"></span></span>
-    </div>
-    <div class="scorechip">
-      <span class="lbl">Equipo B</span>
-      <span class="pts" id="pb">0</span>
-      <span class="vacas">vacas <span class="vdots" id="vb"></span></span>
-    </div>
+    <nav class="nav-links">
+      <a href="#mesa">Mesa</a>
+      <a href="#baraja">Baraja</a>
+      <a href="#reglas">Reglas</a>
+    </nav>
     <div id="status">conectando…</div>
     <button id="newmatch" class="btn btn-secondary" title="Empieza otra partida con los mismos jugadores">Nueva partida</button>
   </header>
 
-  <main class="stage">
-    <div id="tablewrap"><div id="board">
+  <section class="hero">
+    <div>
+      <div class="eyebrow">Baraja española · 4 jugadores · 40 piedras</div>
+      <h1>Grande, chica,<br>pares y juego.<br>Contra modelos.</h1>
+      <p>Te sientas a la mesa con rivales que deciden con un modelo de lenguaje:
+        envidan, cantan órdago y te hablan mientras lo hacen. Tu compañero juega a
+        tu lado por señas; los rivales pueden leerlas o pillarte en falta. Con los
+        naipes oficiales de la baraja española.</p>
+      <div class="hero-cta">
+        <a href="#mesa" class="btn btn-primary">Repartir</a>
+        <a href="#reglas" class="btn btn-ghost">Cómo se juega</a>
+      </div>
+    </div>
+    <div class="hero-fan" id="herofan" aria-hidden="true"></div>
+  </section>
+
+  <section id="mesa" class="section">
+    <div class="section-head">
+      <h2>La mesa</h2>
+      <div class="rule"></div>
+      <div class="scoregroup">
+        <div class="score">
+          <div class="k">Nosotros</div>
+          <div class="v" id="pa">0</div>
+          <div class="sub">vacas <span class="vdots" id="va"></span></div>
+        </div>
+        <div class="vline"></div>
+        <div class="score th">
+          <div class="k">Ellos</div>
+          <div class="v" id="pb">0</div>
+          <div class="sub">vacas <span class="vdots" id="vb"></span></div>
+        </div>
+        <span class="tag tag-neutral meta"><span>meta</span><span>40</span></span>
+      </div>
+    </div>
+
+    <main class="stage">
+      <div id="tablewrap"><div id="board">
       <div class="seat s3" id="seat3"></div>
       <div class="seat s1" id="seat1"></div>
       <div class="seat s2" id="seat2"></div>
@@ -407,7 +522,7 @@ aside{display:flex;flex-direction:column;min-height:0;
 
     <aside>
       <div class="tabs" role="tablist">
-        <button data-t="feed" class="on" role="tab" aria-selected="true" aria-controls="tab-feed" id="tabbtn-feed">Mesa</button>
+        <button data-t="feed" class="on" role="tab" aria-selected="true" aria-controls="tab-feed" id="tabbtn-feed">Cante</button>
         <button data-t="senas" role="tab" aria-selected="false" aria-controls="tab-senas" id="tabbtn-senas">Señas</button>
         <button data-t="hist" role="tab" aria-selected="false" aria-controls="tab-hist" id="tabbtn-hist">Historial</button>
         <button data-t="bench" role="tab" aria-selected="false" aria-controls="tab-bench" id="tabbtn-bench">Bench</button>
@@ -450,7 +565,71 @@ aside{display:flex;flex-direction:column;min-height:0;
         <table id="senatable"></table>
       </div>
     </aside>
-  </main>
+    </main>
+  </section>
+
+  <section id="baraja" class="section">
+    <div class="section-head">
+      <h2>La baraja</h2>
+      <div class="rule"></div>
+      <div class="filters" id="galleryfilters"></div>
+    </div>
+    <p class="lead">Diez rangos por palo — as al siete, sota, caballo y rey. Los
+      ochos y nueves no entran en el mus. Los naipes son el mazo real de la baraja
+      española, servido desde <b>/cards/</b>.</p>
+    <div class="gallery" id="gallery"></div>
+  </section>
+
+  <section id="reglas" class="section">
+    <div class="section-head"><h2>Los cuatro lances</h2><div class="rule"></div></div>
+    <div class="lances">
+      <div class="card lance"><div class="card-kicker">Lance 1</div>
+        <div class="card-title">Grande</div>
+        <div class="card-body">Gana la mano más alta. El rey manda y el tres vale
+          como rey. Se compara carta a carta de mayor a menor.</div></div>
+      <div class="card lance"><div class="card-kicker">Lance 2</div>
+        <div class="card-title">Chica</div>
+        <div class="card-body">Al revés: gana la mano más baja. El as manda y el
+          dos vale como as.</div></div>
+      <div class="card lance"><div class="card-kicker">Lance 3</div>
+        <div class="card-title">Pares</div>
+        <div class="card-body">Sólo se juega si hay pares en las dos parejas.
+          Duples valen 3 piedras, medias 2, un par 1.</div></div>
+      <div class="card lance"><div class="card-kicker">Lance 4</div>
+        <div class="card-title">Juego</div>
+        <div class="card-body">Suma con figuras a diez: treinta y uno o más es
+          juego. El 31 vale 3 piedras, el resto 2. Sin juego se canta al punto.</div></div>
+    </div>
+    <div class="rulecols">
+      <div>
+        <h3>Apostar</h3>
+        <p>En cada lance puedes pasar, envidar dos piedras o cantar órdago. Si la
+          pareja contraria no quiere, te llevas lo que había en juego; si quiere,
+          se decide al descubrir las cartas. Órdago aceptado resuelve la partida
+          entera en ese lance.</p>
+      </div>
+      <div>
+        <h3>Mus y descarte</h3>
+        <p>Antes de apostar, cada jugador dice mus o no hay mus por orden desde la
+          mano. Si los cuatro dicen mus, se descarta de una a cuatro cartas y se
+          vuelve a repartir. Un solo no basta para cortar.</p>
+      </div>
+      <div>
+        <h3>Señas</h3>
+        <p>Cada pareja tiene su canal de gestos reglamentarios, de significado
+          fijo. Tu compañero los lee y juega con esa información; los rivales
+          también pueden interceptarlos. Aquí las envías desde la pestaña
+          <b>Señas</b>.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="pagefoot">
+    <div>Naipes de la baraja española vía
+      <a href="https://github.com/gjenkins20/spanish-playing-cards-svg">spanish-playing-cards-svg</a>
+      — arte de Basquetteur (Wikimedia Commons, CC BY-SA 3.0).</div>
+    <div style="margin-top:6px">Rivales jugados por modelos de lenguaje. Nocturne.</div>
+  </footer>
 
   <div id="actionbar">
     <span id="waitmsg" class="wait"></span>
@@ -532,6 +711,71 @@ function cardHtml(name){
   return '<span class="hicard"><img src="' + src + '" alt="' + esc(name) +
     '" title="' + esc(name) + '"></span>';
 }
+
+/* ---------- the page: hero fan + La baraja gallery (real deck) ---------- */
+const SUITS_ES = [['oros','Oros'],['copas','Copas'],['espadas','Espadas'],
+  ['bastos','Bastos']];
+const RANKS_ES = [['as','01'],['dos','02'],['tres','03'],['cuatro','04'],
+  ['cinco','05'],['seis','06'],['siete','07'],['sota','10'],['caballo','11'],
+  ['rey','12']];
+function srcFor(suitId, rankEs){
+  const s = SUIT_FILE[suitId], r = RANK_FILE[rankEs];
+  return (s && r) ? ('/cards/card_' + s + '_' + r + '.svg') : null;
+}
+function deckCardEl(suitId, rankEs){
+  const src = srcFor(suitId, rankEs);
+  const d = document.createElement('div');
+  d.className = 'pcard';
+  if(!src){ d.classList.add('pcard-txt'); d.textContent = rankEs + ' de ' + suitId; return d; }
+  const img = document.createElement('img');
+  img.src = src; img.alt = rankEs + ' de ' + suitId; img.loading = 'lazy';
+  img.draggable = false; d.appendChild(img);
+  return d;
+}
+function buildHero(){
+  const el = $('herofan'); if(!el) return;
+  const spec = [
+    ['espadas','as', 0, 18, -14, 0],
+    ['bastos','cuatro', 16, 48, -7, 70],
+    ['copas','dos', 32, 66, 0, 140],
+    ['espadas','seis', 48, 48, 7, 210],
+    ['bastos','dos', 62, 18, 14, 280]
+  ];
+  el.replaceChildren(...spec.map(([s, r, left, bottom, rot, delay]) => {
+    const d = document.createElement('div');
+    d.className = 'hcard rise';
+    d.style.left = left + '%'; d.style.bottom = bottom + 'px';
+    d.style.transform = 'rotate(' + rot + 'deg)';
+    d.style.animationDelay = delay + 'ms';
+    const src = srcFor(s, r);
+    if(src){ const img = document.createElement('img'); img.src = src; img.alt = '';
+      img.draggable = false; d.appendChild(img); }
+    return d;
+  }));
+}
+let galleryFilter = 'todas';
+function buildFilters(){
+  const f = $('galleryfilters'); if(!f) return;
+  const opts = [['todas','Todas']].concat(SUITS_ES);
+  f.replaceChildren(...opts.map(([id, label]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tag ' + (galleryFilter === id ? 'tag-accent' : 'tag-outline');
+    b.textContent = label;
+    b.onclick = () => { galleryFilter = id; buildFilters(); buildGallery(); };
+    return b;
+  }));
+}
+function buildGallery(){
+  const g = $('gallery'); if(!g) return;
+  const out = [];
+  SUITS_ES.forEach(([id]) => {
+    if(galleryFilter !== 'todas' && galleryFilter !== id) return;
+    RANKS_ES.forEach(([rankEs]) => out.push(deckCardEl(id, rankEs)));
+  });
+  g.replaceChildren(...out);
+}
+buildHero(); buildFilters(); buildGallery();
 
 /* ---------- seats ---------- */
 function renderSeat(el, s){
