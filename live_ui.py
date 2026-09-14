@@ -1240,10 +1240,13 @@ if(TOKEN) QS.set('token', TOKEN);
 if(REVEAL) QS.set('reveal', REVEAL);
 const Q = QS.toString();
 function applySnapshot(data){
-  if(data && data.version !== lastVersion){ S = data; lastVersion = data.version; render(); }
+  if(data && typeof data.version === 'number' && data.version !== lastVersion){
+    S = data; lastVersion = data.version; render();
+  }
 }
 function connect(){
   const es = new EventSource('/events' + (Q ? ('?' + Q) : ''));
+  es.onopen = () => { $('status').textContent = ''; };
   es.onmessage = m => { try { applySnapshot(JSON.parse(m.data)); } catch(e){} };
   es.onerror = () => { $('status').textContent = 'reconectando…'; };
 }
