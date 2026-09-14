@@ -819,7 +819,16 @@ class LiveHTTP(BaseHTTPRequestHandler):
             while True:
                 tbl = _table_for(self)
                 if tbl is None:
-                    break
+                    # public mode: no session for this visitor yet (no game
+                    # started). Hold the stream open with a heartbeat instead
+                    # of closing it -- closing makes EventSource error+retry
+                    # forever and the page sits on "reconectando…".
+                    if time.monotonic() - last_beat > 15:
+                        self.wfile.write(b": waiting\n\n")
+                        self.wfile.flush()
+                        last_beat = time.monotonic()
+                    time.sleep(0.3)
+                    continue
                 g = tbl.current()
                 marker_now = (g.epoch, g.version)
                 if marker_now != marker:

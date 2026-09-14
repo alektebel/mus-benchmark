@@ -1028,24 +1028,30 @@ function syncDiscardBtn(){
 }
 
 /* ---------- send ---------- */
+function apiHeaders(){
+  const h = {'Content-Type': 'application/json'};
+  if(SID) h['X-Mus-Session'] = SID;
+  return h;
+}
 function sendAction(obj){
-  fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:TOKEN, ...obj})})
+  fetch('/api/action',{method:'POST',headers:apiHeaders(),
+    body:JSON.stringify({token:TOKEN, sid:SID, ...obj})})
    .then(r => r.json()).then(d => { if(!d.ok) flash(d.error || 'error'); });
 }
 function flash(t){ const e = $('errbanner'); e.style.display = 'block'; e.textContent = t;
   setTimeout(() => { e.style.display = 'none'; }, 4000); }
 $('sendchat').onclick = () => {
   const v = $('chatinput').value.trim(); if(!v) return;
-  fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:TOKEN, text:v})}).then(() => $('chatinput').value = '');
+  fetch('/api/chat',{method:'POST',headers:apiHeaders(),
+    body:JSON.stringify({token:TOKEN, sid:SID, text:v})}).then(() => $('chatinput').value = '');
 };
 $('chatinput').addEventListener('keydown', e => { if(e.key === 'Enter') $('sendchat').onclick(); });
 $('newmatch').onclick = () => {
   const hands = prompt('¿Cuántas manos?', String((S.config && S.config.hands) || 12));
   if(!hands) return;
-  fetch('/api/new',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:TOKEN, hands:parseInt(hands,10)})});
+  fetch('/api/new',{method:'POST',headers:apiHeaders(),
+    body:JSON.stringify({token:TOKEN, sid:SID, hands:parseInt(hands,10)})})
+   .then(r => r.json()).then(d => { if(d.ok && d.sid) adoptSession(d.sid); });
 };
 
 /* ---------- senas tab ---------- */
@@ -1055,8 +1061,8 @@ function renderSenas(){
     const b = document.createElement('button'); b.className = 'sena-btn';
     b.innerHTML = '<span class="g">' + esc(g2) + '</span><span class="m">' + esc(m) + '</span>';
     b.onclick = () => {
-      fetch('/api/sena',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({token:TOKEN, gesture:g2})})
+      fetch('/api/sena',{method:'POST',headers:apiHeaders(),
+        body:JSON.stringify({token:TOKEN, sid:SID, gesture:g2})})
        .then(r => r.json()).then(d => { if(!d.ok) flash(d.error); });
     };
     g.appendChild(b);
@@ -1235,25 +1241,41 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
 
 /* ---------- live transport: SSE + polling fallback ---------- */
 let lastVersion = -1;
+// The session id travels explicitly: cookies from the API origin are
+// third-party and get blocked (Safari, Firefox, partial Chrome), so we keep
+// it in this origin's localStorage and resend it on every call.
+let SID = null;
+try { SID = localStorage.getItem('mus_sid') || null; } catch(e) {}
 const QS = new URLSearchParams();
 if(TOKEN) QS.set('token', TOKEN);
 if(REVEAL) QS.set('reveal', REVEAL);
-const Q = QS.toString();
+if(SID) QS.set('sid', SID);
+let Q = QS.toString();
+let es = null;
 function applySnapshot(data){
   if(data && typeof data.version === 'number' && data.version !== lastVersion){
     S = data; lastVersion = data.version; render();
   }
 }
 function connect(){
-  const es = new EventSource('/events' + (Q ? ('?' + Q) : ''));
+  if(es) es.close();
+  es = new EventSource('/events' + (Q ? ('?' + Q) : ''),
+                       {withCredentials: true});
   es.onopen = () => { $('status').textContent = ''; };
   es.onmessage = m => { try { applySnapshot(JSON.parse(m.data)); } catch(e){} };
   es.onerror = () => { $('status').textContent = 'reconectando…'; };
 }
+function adoptSession(sid){
+  if(!sid) return;
+  SID = sid;
+  try { localStorage.setItem('mus_sid', SID); } catch(e) {}
+  if(!QS.has('sid')){ QS.set('sid', SID); Q = QS.toString(); connect(); }
+}
 connect();
 // Some proxies (e.g. Cloudflare quick tunnels) buffer SSE; poll /snapshot as a fallback.
 setInterval(() => {
-  fetch('/snapshot' + (Q ? ('?' + Q) : '')).then(r => r.json())
+  fetch('/snapshot' + (Q ? ('?' + Q) : ''), {credentials: 'include'})
+    .then(r => r.json())
     .then(applySnapshot).catch(() => {});
 }, 2000);
 </script>
