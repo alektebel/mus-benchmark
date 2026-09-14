@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 from email.utils import parsedate_to_datetime
 import random
+import tempfile
 import threading
 import time
 
@@ -55,6 +56,17 @@ CB_THRESHOLD = int(os.environ.get("CB_THRESHOLD", "5"))        # consecutive fai
 CB_COOLDOWN = float(os.environ.get("CB_COOLDOWN", "60.0"))     # seconds
 MATCH_TIMEOUT = float(os.environ.get("MATCH_TIMEOUT", "3600"))  # 1h per match
 MAX_TURNS_PER_HAND = int(os.environ.get("MAX_TURNS_PER_HAND", "200"))
+# Global cap on requests in flight, enforced ACROSS PROCESSES: the tournament
+# runs each match as its own subprocess, so an in-process semaphore cannot see
+# the other matches. 0 disables. Set it below the provider's own parallel cap.
+MAX_INFLIGHT = int(os.environ.get("MAX_INFLIGHT", "0"))
+INFLIGHT_DIR = os.environ.get(
+    "INFLIGHT_DIR", os.path.join(tempfile.gettempdir(), "mus_bench_inflight"))
+INFLIGHT_WAIT = float(os.environ.get("INFLIGHT_WAIT", "0.25"))
+# A 429 means "wait", not "the provider is broken". Counting it toward the
+# breaker is what turned one model's rate limit into a table-wide outage:
+# every seat saw `circuit open for nan` and played default actions instead.
+CB_COUNT_RATE_LIMIT = os.environ.get("CB_COUNT_RATE_LIMIT", "0") == "1"
 
 
 def classify_status(status: int, body: str = "") -> Exception:
@@ -95,10 +107,96 @@ class CircuitBreaker:
 BREAKER = CircuitBreaker()
 
 
+def is_rate_limit(err: Exception) -> bool:
+    return isinstance(err, RetryableAPIError) and "HTTP 429" in str(err)
+
+
+class InflightLimiter:
+    """Cross-process cap on concurrent requests, as lock files in a directory.
+
+    A directory entry per in-flight call is crude but it is the one mechanism
+    that works when the matches are separate subprocesses (`run_tournament`
+    spawns them) and it degrades safely: if anything goes wrong we let the call
+    through rather than stalling a 5-hour run. Stale slots from a killed
+    process are reclaimed by age.
+    """
+
+    STALE_AFTER = 300.0
+
+    def __init__(self, limit: int = 0, path: str | None = None):
+        self.limit = limit
+        self.path = path or INFLIGHT_DIR
+
+    def _reap(self) -> int:
+        now = time.time()
+        live = 0
+        try:
+            for name in os.listdir(self.path):
+                fp = os.path.join(self.path, name)
+                try:
+                    if now - os.path.getmtime(fp) > self.STALE_AFTER:
+                        os.unlink(fp)
+                    else:
+                        live += 1
+                except FileNotFoundError:
+                    pass
+        except FileNotFoundError:
+            return 0
+        return live
+
+    def acquire(self, deadline: float | None = None) -> str | None:
+        if self.limit <= 0:
+            return None
+        try:
+            os.makedirs(self.path, exist_ok=True)
+            token = f"{os.getpid()}-{threading.get_ident()}-{random.random():.9f}"
+            fp = os.path.join(self.path, token)
+            while True:
+                if self._reap() < self.limit:
+                    # O_EXCL so two processes cannot claim the same slot
+                    fd = os.open(fp, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                    os.close(fd)
+                    return fp
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise MatchTimeout("waiting for a request slot")
+                time.sleep(INFLIGHT_WAIT * (1.0 + random.random()))
+        except MatchTimeout:
+            raise
+        except OSError:
+            return None      # never let bookkeeping block the run
+
+    def release(self, token: str | None) -> None:
+        if not token:
+            return
+        try:
+            os.unlink(token)
+        except OSError:
+            pass
+
+
+LIMITER = InflightLimiter(MAX_INFLIGHT)
+
+
+def backoff_delay(attempt: int, base: float = BACKOFF_BASE,
+                  cap: float = BACKOFF_MAX) -> float:
+    """Exponential backoff with EQUAL JITTER: half the delay is deterministic,
+    half is random.
+
+    The old form added only uniform(0, 0.5) to a fully deterministic delay, so
+    several workers that hit a 429 in the same second retried in the same
+    second, and kept doing so -- the thundering herd that makes a rate limit
+    worse. Equal jitter keeps the exponential growth while decorrelating the
+    retries, and never collapses to ~0 the way full jitter can.
+    """
+    ceiling = min(base * (2.0 ** max(0, attempt)), cap)
+    return ceiling / 2.0 + random.uniform(0.0, ceiling / 2.0)
+
+
 def _sleep_backoff(attempt: int, retry_after: float | None) -> float:
     if retry_after is not None:
+        # honour the server's own number, jittered so callers do not resync
         return max(0.0, retry_after) + random.uniform(0, 1)
-    return min(BACKOFF_BASE * (2 ** attempt) + random.uniform(0, 0.5), BACKOFF_MAX)
+    return backoff_delay(attempt)
 
 
 def call_with_retries(fn, provider: str = "nan", attempts: int = CALL_ATTEMPTS,
@@ -121,8 +219,12 @@ def call_with_retries(fn, provider: str = "nan", attempts: int = CALL_ATTEMPTS,
     for attempt in range(attempts):
         check_deadline()
         retry_after = None
+        slot = None
         try:
+            slot = LIMITER.acquire(deadline)
             r = fn()
+            LIMITER.release(slot)
+            slot = None
             check_deadline()
             if r.status_code == 200:
                 data = r.json()
@@ -148,12 +250,18 @@ def call_with_retries(fn, provider: str = "nan", attempts: int = CALL_ATTEMPTS,
                 except (TypeError, ValueError, OverflowError):
                     retry_after = None
         except (FatalAPIError, MatchTimeout):
+            LIMITER.release(slot)
             raise
         except RetryableAPIError as e:
             last = e
         except Exception as e:  # noqa: BLE001 -- timeouts, conn errors
             last = RetryableAPIError(f"{type(e).__name__}: {e}")
-        BREAKER.record_failure(provider)
+        finally:
+            LIMITER.release(slot)
+        # A rate limit is backpressure, not an outage: backing off is the right
+        # response, opening the breaker is not.
+        if CB_COUNT_RATE_LIMIT or not is_rate_limit(last):
+            BREAKER.record_failure(provider)
         if attempt < attempts - 1:
             delay = _sleep_backoff(attempt, retry_after)
             if deadline is not None:

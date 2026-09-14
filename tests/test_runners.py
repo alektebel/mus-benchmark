@@ -1,8 +1,10 @@
 """Offline regressions for runner entry points and API failure handling."""
 import importlib
-import threading
-import tempfile
 import json
+import os
+import tempfile
+import threading
+import time
 from pathlib import Path
 from random import Random
 import unittest
@@ -116,3 +118,72 @@ class RunnerTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RateLimitTests(unittest.TestCase):
+    """The 429 cascade that destroyed three qwen matches must not recur."""
+
+    def test_rate_limit_does_not_open_the_breaker(self):
+        apifail.BREAKER.record_success('p')
+        response = Mock(status_code=429, text='max_parallel_requests',
+                        headers={})
+        call = Mock(return_value=response)
+        with patch.object(apifail.time, 'sleep'):
+            with self.assertRaises(apifail.LLMCallFailure):
+                apifail.call_with_retries(call, 'p', attempts=6)
+        # six 429s in a row, well past CB_THRESHOLD, and the circuit is still
+        # closed -- the next decision gets a real attempt, not default noise
+        apifail.BREAKER.check('p')
+
+    def test_a_real_server_error_still_opens_the_breaker(self):
+        apifail.BREAKER.record_success('q')
+        response = Mock(status_code=503, text='down', headers={})
+        call = Mock(return_value=response)
+        with patch.object(apifail.time, 'sleep'):
+            with self.assertRaises(apifail.LLMCallFailure):
+                apifail.call_with_retries(call, 'q', attempts=6)
+        with self.assertRaises(apifail.RetryableAPIError):
+            apifail.BREAKER.check('q')
+
+    def test_breaker_is_keyed_per_model(self):
+        apifail.BREAKER.record_success('nan:a')
+        for _ in range(apifail.CB_THRESHOLD):
+            apifail.BREAKER.record_failure('nan:a')
+        with self.assertRaises(apifail.RetryableAPIError):
+            apifail.BREAKER.check('nan:a')
+        apifail.BREAKER.check('nan:b')      # the other seat is unaffected
+
+
+class InflightLimiterTests(unittest.TestCase):
+    def test_limiter_caps_concurrent_slots(self):
+        with tempfile.TemporaryDirectory() as d:
+            lim = apifail.InflightLimiter(limit=2, path=d)
+            a, b = lim.acquire(), lim.acquire()
+            self.assertIsNotNone(a)
+            self.assertIsNotNone(b)
+            self.assertEqual(len(os.listdir(d)), 2)
+            with self.assertRaises(apifail.MatchTimeout):
+                lim.acquire(deadline=time.monotonic())   # full, already past
+            lim.release(a)
+            self.assertEqual(len(os.listdir(d)), 1)
+            c = lim.acquire()
+            self.assertIsNotNone(c)
+            lim.release(b)
+            lim.release(c)
+            self.assertEqual(os.listdir(d), [])
+
+    def test_zero_limit_is_a_no_op(self):
+        lim = apifail.InflightLimiter(limit=0)
+        self.assertIsNone(lim.acquire())
+        lim.release(None)
+
+    def test_stale_slots_from_a_killed_process_are_reclaimed(self):
+        with tempfile.TemporaryDirectory() as d:
+            lim = apifail.InflightLimiter(limit=1, path=d)
+            dead = os.path.join(d, 'dead')
+            open(dead, 'w').close()
+            old = time.time() - apifail.InflightLimiter.STALE_AFTER - 1
+            os.utime(dead, (old, old))
+            slot = lim.acquire(deadline=time.monotonic() + 5)
+            self.assertIsNotNone(slot)
+            self.assertFalse(os.path.exists(dead))

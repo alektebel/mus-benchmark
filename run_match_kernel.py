@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 from random import Random
 
 from mus_engine import MusEngine
-import apifail
-from apifail import FatalAPIError, LLMCallFailure, MatchTimeout, DegradedMatch, \
-    TurnLimitExceeded
 from agents import THINK_BUDGET, REASONING_MODE
+from decision_log import DecisionLog
 from virtual_kernel import run_match_kernel, KERNEL_WINDOW, KERNEL_WINDOW_JITTER
 
 
@@ -40,6 +40,9 @@ def main():
     ap.add_argument("--jitter", type=float, default=None,
                     help=f"relative window jitter 0..1 (default {KERNEL_WINDOW_JITTER})")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--decisions", default=None,
+                    help="JSONL path for the per-decision ground-truth record "
+                         "(defaults to --out with a .jsonl suffix)")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
     if args.teams is not None:
@@ -67,10 +70,38 @@ def main():
     print(f"hands={args.hands} seed={args.seed} window={virtual_kernel.KERNEL_WINDOW} "
           f"jitter={virtual_kernel.KERNEL_WINDOW_JITTER} "
           f"reasoning={REASONING_MODE} think_budget={THINK_BUDGET}\n")
-    res = run_match_kernel(MusEngine(rng=Random(args.seed)), models,
-                           hands=args.hands, seed=args.seed, verbose=args.verbose)
-    print(f"\nResult: vacas {res['vacas_a']}-{res['vacas_b']}  hands={res['hands']} "
+    dec_path = args.decisions
+    if dec_path is None and args.out:
+        dec_path = re.sub(r"\.json$", "", args.out) + ".jsonl"
+
+    def _save(res):
+        if not args.out:
+            return
+        tmp = args.out + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(res, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, args.out)      # never leave a half-written result
+
+    with DecisionLog(dec_path) as dlog:
+        # a partial result is rewritten after every hand, so a SIGKILL costs at
+        # most the hand in flight -- the mirror run lost 3 matches to this.
+        def on_hand(h, a, b, winner, va, vb):
+            _save({"status": "running", "hands_completed": h,
+                   "hands": args.hands, "models": list(models),
+                   "vacas_a": va, "vacas_b": vb, "seed": args.seed})
+
+        res = run_match_kernel(MusEngine(rng=Random(args.seed)), models,
+                               hands=args.hands, seed=args.seed,
+                               verbose=args.verbose, hand_callback=on_hand,
+                               decision_log=dlog)
+        if dlog.enabled:
+            print(f"Decisions -> {dec_path} ({dlog.records} records)")
+    print(f"\nResult: vacas {res['vacas_a']}-{res['vacas_b']}  "
+          f"piedras {res['piedras_a']}-{res['piedras_b']}  "
+          f"hands={res['hands_completed']}/{res['hands']} "
           f"status={res['status']}  clock={res['virtual_clock']}")
+    if res.get("abort_reason"):
+        print(f"ABORTED: {res['abort_reason']}")
     s = res["signals"]
     print(f"Señas: published={s['published']} caught={s['caught']} "
           f"missed={s['missed']}")
@@ -79,8 +110,7 @@ def main():
           f"calls={res['usage']['calls']} fallbacks={res['usage']['fallbacks']}"
           f"/{res['usage']['turns']} turns elapsed={res['elapsed']}s")
     if args.out:
-        with open(args.out, "w") as f:
-            json.dump(res, f, indent=2)
+        _save(res)
         print(f"Saved -> {args.out}")
 
 

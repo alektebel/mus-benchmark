@@ -14,7 +14,8 @@ import requests
 
 from mus_engine import MusEngine, Phase, IllegalAction
 from groupchat import PerceptionBudget
-from baselines_strict import RandomPolicy, HeuristicPolicy
+from baselines_strict import (RandomPolicy, HeuristicPolicy,
+                              parse_baseline)
 import apifail
 from apifail import (FatalAPIError, LLMCallFailure, RetryableAPIError,
                      MatchTimeout)
@@ -128,7 +129,10 @@ class StrictAgent(SeatBase):
                     json=self._payload(prompt, max_tokens),
                     timeout=timeout)
             try:
-                d = apifail.call_with_retries(_call, self.provider,
+                # break per MODEL, not per provider: one model's rate limit
+                # used to open the circuit for every seat at the table
+                d = apifail.call_with_retries(_call,
+                                              f"{self.provider}:{self.model}",
                                               what=f"{self.name}/{self.model}",
                                               deadline=self.deadline)
             except FatalAPIError:
@@ -183,26 +187,38 @@ class BaselineSeat(SeatBase):
 
     is_llm = False
 
-    def __init__(self, name: str, kind: str, seat: int, team: int, seed: int = 0):
+    def __init__(self, name: str, kind: str, seat: int, team: int, seed: int = 0,
+                 policy=None):
         self.name, self.seat, self.team = name, seat, team
         self.model = kind
-        self.policy = RandomPolicy(seed + seat) if kind == "random" else HeuristicPolicy()
+        if policy is None:
+            policy = (RandomPolicy(seed + seat) if kind == "random"
+                      else HeuristicPolicy())
+        self.policy = policy
         self._init_state()
 
     def decide(self, prompt: str) -> dict:  # never called; interface parity
         raise NotImplementedError
 
 
+_BASELINE_TAG = {"heuristic": "HA", "random": "RA"}
+
+
 def _make_agent(spec, seat: int, team: int, seed: int = 0):
+    # baselines are resolved FIRST: "eps:0.05" is a baseline spec, not a
+    # provider:model pair, and the provider split would eat the parameter
+    baseline = parse_baseline(spec, seed + seat) if isinstance(spec, str) else None
+    if baseline is not None:
+        label, policy = baseline
+        tag = _BASELINE_TAG.get(label, "EA")
+        return BaselineSeat(f"{tag}{seat}", label, seat, team, seed,
+                            policy=policy)
     if isinstance(spec, (tuple, list)) and len(spec) == 2:
         provider, model = str(spec[0]), str(spec[1])
     elif isinstance(spec, str) and ":" in spec:
         provider, model = spec.split(":", 1)
     else:
         provider, model = DEFAULT_PROVIDER, str(spec)
-    if model in ("heuristic", "random"):
-        return BaselineSeat(f"{'HA' if model == 'heuristic' else 'RA'}{seat}",
-                            model, seat, team, seed)
     return StrictAgent(f"{'A' if team == 0 else 'B'}{seat}", model, seat, team,
                        provider)
 

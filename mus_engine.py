@@ -90,8 +90,24 @@ class EnviteState:
 
 
 class MusEngine:
-    def __init__(self, rng: Random | None = None, card_points: dict | None = None):
+    def __init__(self, rng: Random | None = None, card_points: dict | None = None,
+                 deal_rng: Random | None = None):
         self.rng = rng or Random()
+        # Dealing draws from its OWN stream so the sequence of deals depends
+        # only on the seed, never on how the hands were played. The two share a
+        # seed unless a caller separates them, but they must not share a
+        # generator: a mus redraw that exhausts the 24-card draw pile reshuffles
+        # through self.rng, which would desynchronise every later deal between
+        # two differently-played matches -- exactly the property paired/mirrored
+        # deals depend on.
+        if deal_rng is None:
+            # Fork, do not consume: cloning the state leaves self.rng pristine
+            # for the policies AND starts the deal stream exactly where the
+            # old shared-generator code started it, so existing seeds still
+            # produce the same deals.
+            deal_rng = Random()
+            deal_rng.setstate(self.rng.getstate())
+        self.deal_rng = deal_rng
         self.card_points = dict(card_points or CARD_POINTS)
         self.juego_totals = JUEGO_TOTALS
         self.reset()
@@ -148,7 +164,7 @@ class MusEngine:
         self.ordago_accepted = None
         self.ordago_context = None
         deck = make_deck()
-        self.rng.shuffle(deck)
+        self.deal_rng.shuffle(deck)
         self.hands = {s: deck[s * 4:(s + 1) * 4] for s in range(4)}
         self.draw_pile = deck[16:]
         return self.hands
@@ -378,8 +394,11 @@ class MusEngine:
         truthful = (self._pares_value(self.hands[seat])[0] > 0 if lance == "Pares"
                     else self.hand_points(self.hands[seat], self.card_points) in self.juego_totals)
         if has != truthful:
+            granted = "tengo" if truthful else "no-tengo"
             raise IllegalAction(
-                f"false declaration: declare {'tengo' if truthful else 'no-tengo'} for {lance.lower()}")
+                f"false declaration for {lance.lower()}: your hand DOES "
+                f"{'have' if truthful else 'not have'} it; the only legal action "
+                f"is '{granted}'")
         self.declared[seat] = has
         nxt = (self.current_seat + 1) % 4
         if len(self.declared) == 4:

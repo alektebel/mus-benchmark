@@ -1,0 +1,53 @@
+# Public mus table. Deploy: fly launch --no-deploy (once), then fly deploy.
+# Full walkthrough: docs/DEPLOY-live.md
+app = "mus-table"
+primary_region = "mad"        # closest to you; change if you prefer
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  # The page that is allowed to call this API with credentials.
+  MUS_ALLOW_ORIGINS = "https://alektebel.github.io"
+  MUS_SEATS = "human,glm5.3-flash,deepseek-v4-flash,qwen3.8-flash"
+
+  # --- spend ceilings: every visitor turn costs real API credits ---
+  MUS_DAILY_CALL_BUDGET = "4000"   # model calls per UTC day, then offline seats
+  MUS_SESSION_CALL_CAP  = "240"    # per game
+  MUS_PUBLIC_HANDS      = "4"      # short games bound the cost of each one
+  MUS_MAX_SESSIONS      = "12"     # concurrent tables
+  MUS_MAX_LLM_SESSIONS  = "4"      # of which, tables facing real models
+  MUS_GAMES_PER_IP_HOUR = "6"
+  MUS_SESSION_IDLE_TTL  = "900"    # seconds before an abandoned game is reaped
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Games live in memory. An active player holds an SSE connection on
+  # /events, which counts as a live request and keeps the machine awake;
+  # once everyone leaves, the machine stops and costs nothing.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  # One machine only: sessions are in-process, so a second machine would
+  # serve half the requests a table the visitor does not have.
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 60
+    soft_limit = 40
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[checks.health]
+  type = "http"
+  port = 8080
+  method = "GET"
+  path = "/healthz"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"

@@ -1,0 +1,11 @@
+results/
+publish/web/traces/
+replication/
+llm-council/
+.opencode/
+.git/
+tests/
+docs/
+*.zip
+__pycache__/
+*.pyc
