@@ -703,7 +703,8 @@ footer.pagefoot{border-top:1px solid var(--color-divider);padding:var(--space-6)
 <script>
 'use strict';
 const params = new URLSearchParams(location.search);
-const TOKEN = params.get('token') || null;
+let TOKEN = params.get('token') || null;
+try { TOKEN = TOKEN || localStorage.getItem('mus_token') || null; } catch(e) {}
 const REVEAL = params.get('reveal') || null;
 const $ = id => document.getElementById(id);
 let S = null;            // last snapshot
@@ -1051,7 +1052,7 @@ $('newmatch').onclick = () => {
   if(!hands) return;
   fetch('/api/new',{method:'POST',headers:apiHeaders(),
     body:JSON.stringify({token:TOKEN, sid:SID, hands:parseInt(hands,10)})})
-   .then(r => r.json()).then(d => { if(d.ok && d.sid) adoptSession(d.sid); });
+   .then(r => r.json()).then(d => { if(d.ok) adoptSession(d); });
 };
 
 /* ---------- senas tab ---------- */
@@ -1265,11 +1266,20 @@ function connect(){
   es.onmessage = m => { try { applySnapshot(JSON.parse(m.data)); } catch(e){} };
   es.onerror = () => { $('status').textContent = 'reconectando…'; };
 }
-function adoptSession(sid){
-  if(!sid) return;
-  SID = sid;
+function adoptSession(d){
+  if(!d || !d.sid) return;
+  SID = d.sid;
   try { localStorage.setItem('mus_sid', SID); } catch(e) {}
-  if(!QS.has('sid')){ QS.set('sid', SID); Q = QS.toString(); connect(); }
+  if(d.token){
+    TOKEN = d.token;
+    try { localStorage.setItem('mus_token', TOKEN); } catch(e) {}
+  }
+  if(!QS.has('sid')){
+    if(TOKEN) QS.set('token', TOKEN);
+    QS.set('sid', SID);
+    Q = QS.toString();
+    connect();
+  }
 }
 connect();
 // Some proxies (e.g. Cloudflare quick tunnels) buffer SSE; poll /snapshot as a fallback.
