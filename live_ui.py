@@ -1047,7 +1047,7 @@ $('sendchat').onclick = () => {
 };
 $('chatinput').addEventListener('keydown', e => { if(e.key === 'Enter') $('sendchat').onclick(); });
 $('newmatch').onclick = () => {
-  const hands = prompt('¿Cuántas manos?', String((S.config && S.config.hands) || 12));
+  const hands = prompt('¿Cuántas manos?', String((S && S.config && S.config.hands) || 12));
   if(!hands) return;
   fetch('/api/new',{method:'POST',headers:apiHeaders(),
     body:JSON.stringify({token:TOKEN, sid:SID, hands:parseInt(hands,10)})})
