@@ -1,3 +1,4 @@
+import time
 import unittest
 from random import Random
 from unittest.mock import patch
@@ -102,6 +103,72 @@ class SignalBusTests(unittest.TestCase):
         self.assertTrue(bus.gesture_live(0, "elevar-las-cejas", 1.0))
         ev2 = bus.publish(0, 2, "guinar-el-ojo", 0.1, 0.3)
         self.assertFalse(bus.gesture_live(0, "guinar-el-ojo", 1.0))
+
+
+class InterceptionTests(unittest.TestCase):
+    """Rivals watch the table: with probability p they catch the gesture."""
+
+    def test_prob_one_intercepts_both_opponents(self):
+        bus = SignalBus(rng=Random(1), intercept_prob=1.0)
+        ev = bus.publish(0, 2, "guinar-el-ojo", 0.1, 5.0)
+        self.assertEqual(ev.intercepted_by, frozenset({1, 3}))
+        # rivals get it in their pending queue, tagged as seen-by-intercept
+        pend = bus.pending_for(1, 1.0)
+        self.assertEqual([e.seq for e in pend], [ev.seq])
+        bus.deliver(pend, 1.0, seat=1)
+        # interception must NOT look like partner delivery
+        self.assertIsNone(ev.delivered_at)
+        self.assertIn(1, ev.seen_by)
+        # partner delivery still works independently
+        pend2 = bus.pending_for(2, 1.0)
+        self.assertEqual([e.seq for e in pend2], [ev.seq])
+        bus.deliver(pend2, 2.0, seat=2)
+        self.assertEqual(ev.delivered_at, 2.0)
+        # and the interceptor does not receive it twice
+        self.assertEqual(bus.pending_for(1, 3.0), [])
+
+    def test_prob_zero_never_intercepts(self):
+        bus = SignalBus(rng=Random(1), intercept_prob=0.0)
+        bus.publish(0, 2, "guinar-el-ojo", 0.1, 5.0)
+        for rival in (1, 3):
+            self.assertEqual(bus.pending_for(rival, 1.0), [])
+
+    def test_interception_is_probabilistic_and_seeded(self):
+        a = SignalBus(rng=Random(7), intercept_prob=0.5)
+        b = SignalBus(rng=Random(7), intercept_prob=0.5)
+        c = SignalBus(rng=Random(8), intercept_prob=0.5)
+        for _ in range(40):
+            a.publish(0, 2, "guinar-el-ojo", 0.1, 5.0)
+            b.publish(0, 2, "guinar-el-ojo", 0.1, 5.0)
+            c.publish(0, 2, "guinar-el-ojo", 0.1, 5.0)
+        got_a = [ev.intercepted_by for ev in a.events]
+        self.assertEqual(got_a, [ev.intercepted_by for ev in b.events])
+        self.assertNotEqual(got_a, [ev.intercepted_by for ev in c.events])
+        # at p=0.5 some events escape interception entirely
+        self.assertIn(frozenset(), got_a)
+        self.assertIn(len({frozenset({1}), frozenset({3}),
+                           frozenset({1, 3})} & set(got_a)), (1, 2, 3))
+
+    def test_interception_does_not_expire_partner_delivery(self):
+        # a gesture intercepted by a rival but never caught by the partner
+        # still counts as missed for the sender, and expires on schedule
+        bus = SignalBus(rng=Random(1), intercept_prob=1.0)
+        ev = bus.publish(0, 2, "guinar-el-ojo", 0.1, 0.3)
+        self.assertEqual(bus.pending_for(1, 0.2), [ev])
+        bus.deliver(bus.pending_for(1, 0.2), 0.2, seat=1)
+        self.assertTrue(ev.expired or bus.pending_for(2, 0.5) == [])
+        bus._mark_expired(0.5)
+        self.assertTrue(ev.expired)
+        # the partner missed it (addressee-side tally); the sender's tally
+        # records that it was intercepted all the same
+        self.assertEqual(bus.counts_for(2)["expired_unseen"], 1)
+        self.assertEqual(bus.counts_for(0)["intercepted"], 1)
+
+    def test_default_bus_is_interception_free(self):
+        bus = SignalBus()
+        bus.publish(0, 2, "guinar-el-ojo", 0.1, 5.0)
+        self.assertEqual(bus.pending_for(1, 1.0), [])
+        self.assertEqual(bus.counts_for(0)["intercepted"], 0)
 
 
 class PolicyTests(unittest.TestCase):
@@ -220,6 +287,39 @@ class KernelMatchTests(unittest.TestCase):
         # and the bus itself never addressed one to an opponent
         self.assertEqual([ev for ev in bus.events if ev.to_seat in (1, 3)], [])
 
+    def test_rivals_intercept_senas_with_probability(self):
+        engine = MusEngine(rng=Random(7))
+        engine.deal()
+        engine.hands[0] = list(TWO_KINGS)     # guarantees the 2-reyes sena
+        ch = Channels()
+        bus = SignalBus(rng=Random(7), intercept_prob=1.0)
+        kernel = Kernel(rng=Random(7))
+        stats = {"turns": 0, "fallbacks": 0, "events": []}
+        seats = four_script_seats(engine)
+        procs = procs_for(seats)
+        procs[0].manager = SignalManager(seat=0, policy=reference_policy())
+        run_hand_kernel(engine, procs, ch, bus, kernel, stats, deal=False)
+        self.assertGreater(procs[0].manager.published, 0)
+        # both rivals intercepted the gesture and their prompts say so
+        self.assertGreater(procs[1].intercepted, 0)
+        self.assertGreater(procs[3].intercepted, 0)
+        self.assertTrue(any("seat 0 sena:" in p and "INTERCEPTED" in p
+                            for p in seats[1].prompts))
+        self.assertTrue(any("seat 0 sena:" in p and "INTERCEPTED" in p
+                            for p in seats[3].prompts))
+        # the partner's version of the same gesture is NOT marked intercepted
+        self.assertTrue(any("seat 0 sena:" in p
+                            and "INTERCEPTED from a rival" not in p
+                            for p in seats[2].prompts))
+        # the run report surfaces the interception count
+        self.assertEqual(len(vk._serialize_events(bus, 1)),
+                         len(bus.events))
+        self.assertTrue(all("intercepted_by" in ev
+                            for ev in vk._serialize_events(bus, 1)))
+        # the sender's own tally distinguishes caught vs intercepted
+        counts = bus.counts_for(0)
+        self.assertEqual(counts["intercepted"], counts["sent"])
+
     def test_declared_policy_installs_and_invalid_rejected(self):
         engine = MusEngine(rng=Random(9))
         engine.deal()
@@ -325,6 +425,19 @@ class KernelMatchTests(unittest.TestCase):
         self.assertEqual(len(procs[0].manager.policy.rules), len(SENAS))
 
 
+def tolerate_fallbacks():
+    """These tests are about the retry path, not the degrade guard."""
+    return patch.object(vk, "MAX_FALLBACK_RATE", 1.0)
+
+
+def no_sleep():
+    """Silence the decision-level backoff. These tests simulate a provider
+    that is down, and the production path deliberately WAITS it out rather
+    than poisoning the match with default actions -- correct in a 5-hour run,
+    useless in a unit test."""
+    return patch.object(vk.time, "sleep")
+
+
 class FlakySeat(ScriptSeat):
     """LLM-parity seat whose provider fails: first `fail_times` decisions
     raise LLMCallFailure (as after exhausted retries)."""
@@ -351,35 +464,78 @@ class ApiFailureTests(unittest.TestCase):
                         Kernel(rng=Random(7)), stats, deal=deal)
         return stats
 
-    def test_llm_call_failure_falls_back_and_hand_completes(self):
+    def test_a_transient_provider_failure_is_ridden_out_not_fallen_back(self):
+        """The point of the decision-level retry: a fallback is a poisoned
+        data point that counts toward DegradedMatch, so a blip must be waited
+        out rather than answered with a default action."""
         engine = MusEngine(rng=Random(7))
         engine.deal()
         seats = four_script_seats(engine)
         seats[1] = FlakySeat(1, TEAM_OF[1], engine, fail_times=2)
-        stats = self._hand(seats, deal=False)
-        self.assertEqual(engine.phase, Phase.DONE)          # play continued
-        self.assertEqual(seats[1].api_errors, 2)
-        self.assertGreaterEqual(stats["fallbacks"], 2)
+        with no_sleep() as slept:
+            stats = self._hand(seats, deal=False)
+        self.assertEqual(engine.phase, Phase.DONE)
+        self.assertEqual(seats[1].api_errors, 2)     # both failures recorded
+        self.assertEqual(stats["fallbacks"], 0)      # but none became a default
+        self.assertEqual(slept.call_count, 2)        # it waited, twice
         self.assertTrue(any("API FAILURE" in e for e in stats["events"]))
-        self.assertFalse(any("API FAILURE -> default action" in e
-                             for e in seats[1].prompts))    # no prompt leak
+        self.assertTrue(any("waiting" in e for e in stats["events"]))
+        self.assertFalse(any("API FAILURE" in p for p in seats[1].prompts))
+
+    def test_the_waits_grow_exponentially(self):
+        engine = MusEngine(rng=Random(7))
+        engine.deal()
+        seats = four_script_seats(engine)
+        seats[1] = FlakySeat(1, TEAM_OF[1], engine, fail_times=3)
+        with no_sleep() as slept:
+            self._hand(seats, deal=False)
+        waits = [c.args[0] for c in slept.call_args_list]
+        self.assertEqual(len(waits), 3)
+        for earlier, later in zip(waits, waits[1:]):
+            self.assertGreater(later, earlier)
+
+    def test_a_persistent_outage_still_falls_back_eventually(self):
+        engine = MusEngine(rng=Random(7))
+        engine.deal()
+        seats = four_script_seats(engine)
+        seats[1] = FlakySeat(1, TEAM_OF[1], engine, fail_times=10 ** 6)
+        with tolerate_fallbacks(), no_sleep() as slept:
+            stats = self._hand(seats, deal=False)
+        self.assertEqual(engine.phase, Phase.DONE)        # play continued
+        self.assertGreaterEqual(stats["fallbacks"], 1)
+        # one full ride-out attempted per decision, then the default
+        self.assertEqual(slept.call_count,
+                         vk.DECISION_RETRIES * stats["fallbacks"])
+
+    def test_the_wait_never_outlives_the_match_deadline(self):
+        engine = MusEngine(rng=Random(7))
+        engine.deal()
+        seats = four_script_seats(engine)
+        seats[1] = FlakySeat(1, TEAM_OF[1], engine, fail_times=10 ** 6)
+        seats[1].deadline = time.monotonic() - 1          # already past
+        with tolerate_fallbacks(), no_sleep() as slept:
+            self._hand(seats, deal=False)
+        self.assertEqual(slept.call_count, 0)             # no pointless waiting
 
     def test_degraded_match_still_raises_when_fallbacks_dominate(self):
         engine = MusEngine(rng=Random(7))
         seats = [FlakySeat(s, TEAM_OF[s], engine, fail_times=10 ** 6)
                  for s in range(4)]
         stats = {"turns": 0, "fallbacks": 0, "events": []}
-        with self.assertRaises(apifail.DegradedMatch):
+        with no_sleep(), self.assertRaises(apifail.DegradedMatch):
             for _ in range(12):   # fresh deal per hand; guard trips by turn 10
                 self._hand(seats, stats=stats)
 
-    def test_fatal_api_error_still_aborts(self):
+    def test_fatal_api_error_is_never_retried(self):
+        """A bad payload or a missing key will fail identically forever;
+        waiting on it just burns the match clock."""
         engine = MusEngine(rng=Random(7))
         engine.deal()
         seats = [FlakySeat(s, TEAM_OF[s], engine, fail_times=1,
                            error=apifail.FatalAPIError("no key")) for s in range(4)]
-        with self.assertRaises(apifail.FatalAPIError):
+        with no_sleep() as slept, self.assertRaises(apifail.FatalAPIError):
             self._hand(seats)
+        self.assertEqual(slept.call_count, 0)
 
 
 if __name__ == "__main__":

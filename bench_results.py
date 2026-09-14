@@ -42,8 +42,8 @@ def is_publishable_match(llm_calls: int, fallbacks: int,
 
 def _match_row(kind: str, source: str, label: str, seed, status: str,
                vacas_a, vacas_b, hands, hand_wins, senas: dict,
-               bluffs: int, fallbacks: int, rejections: int,
-               llm_calls: int, elapsed) -> dict:
+               false_senas: int, fallbacks: int, rejections: int,
+               llm_calls: int, elapsed, piedras_a=None, piedras_b=None) -> dict:
     publishable = is_publishable_match(llm_calls, fallbacks, status)
     # Surface API-noise finishes as degraded so the UI/leaderboard can skip them
     if status in ("done", "finished") and not publishable:
@@ -51,7 +51,10 @@ def _match_row(kind: str, source: str, label: str, seed, status: str,
     return {"kind": kind, "source": source, "label": label, "seed": seed,
             "status": status, "vacas_a": vacas_a, "vacas_b": vacas_b,
             "hands": hands, "hand_wins": hand_wins, "senas": senas,
-            "bluffs": bluffs, "fallbacks": fallbacks,
+            "piedras_a": piedras_a, "piedras_b": piedras_b,
+            # gestures false of the sender's own cards, addressed to the
+            # sender's PARTNER -- deceiving a teammate, not a betting bluff
+            "false_senas": false_senas, "fallbacks": fallbacks,
             "rejections": rejections, "llm_calls": llm_calls,
             "elapsed": elapsed, "publishable": publishable}
 
@@ -60,20 +63,29 @@ def _lb_key(model: str) -> dict:
     return {"model": model, "matches": 0, "wins": 0, "losses": 0, "ties": 0,
             "vacas_for": 0, "vacas_against": 0, "hands": 0,
             "senas_published": 0, "senas_caught": 0, "senas_missed": 0,
-            "bluffs": 0, "fallbacks": 0, "llm_calls": 0}
+            "senas_intercepted": 0,
+            "piedras_for": 0, "piedras_against": 0, "piedras_hands": 0,
+            "false_senas": 0, "fallbacks": 0, "llm_calls": 0}
 
 
 def _lb_add(lb: dict, model: str, vacas_for: int, vacas_against: int,
-            hands: int, row: dict) -> None:
+            hands: int, row: dict, piedras_for=None,
+            piedras_against=None) -> None:
     k = lb.setdefault(model, _lb_key(model))
     k["matches"] += 1
+    # matches from before piedras were recorded must not read as a 0.0 edge
+    if piedras_for is not None and piedras_against is not None:
+        k["piedras_for"] += piedras_for
+        k["piedras_against"] += piedras_against
+        k["piedras_hands"] += hands or 0
     k["vacas_for"] += vacas_for or 0
     k["vacas_against"] += vacas_against or 0
     k["hands"] += hands or 0
     k["senas_published"] += row["senas"].get("published", 0)
     k["senas_caught"] += row["senas"].get("caught", 0)
     k["senas_missed"] += row["senas"].get("missed", 0)
-    k["bluffs"] += row["bluffs"]
+    k["senas_intercepted"] += row["senas"].get("intercepted", 0)
+    k["false_senas"] += row["false_senas"]
     k["fallbacks"] += row["fallbacks"]
     k["llm_calls"] += row["llm_calls"]
     if vacas_for is None or vacas_against is None:
@@ -102,11 +114,14 @@ def _tournament_entry_metrics(entry: dict) -> dict | None:
         "senas_published": r.get("signals", {}).get("published", 0),
         "senas_caught": r.get("signals", {}).get("caught", 0),
         "senas_missed": r.get("signals", {}).get("missed", 0),
+        "senas_intercepted": r.get("signals", {}).get("intercepted", 0),
         "llm_calls": sum(a.get("calls", 0) for a in r.get("agents", [])
                          if a.get("is_llm")),
         "fallbacks": r.get("usage", {}).get("fallbacks", 0),
         "rejections": sum(a.get("rejections", 0) for a in r.get("agents", [])),
-        "bluffs": sum(a.get("bluffs", 0) for a in r.get("agents", [])),
+        "false_senas_to_partner": sum(a.get("bluffs", 0)
+                                      for a in r.get("agents", [])),
+        "piedras_a": r.get("piedras_a"), "piedras_b": r.get("piedras_b"),
         "elapsed_s": r.get("elapsed"),
         "policies": {a["name"]: a.get("policy") for a in r.get("agents", [])
                      if a.get("is_llm")},
@@ -133,15 +148,19 @@ def load_tournament_summary(path: Path) -> list[dict]:
             continue
         senas = {"published": m.get("senas_published", 0),
                  "caught": m.get("senas_caught", 0),
-                 "missed": m.get("senas_missed", 0)}
+                 "missed": m.get("senas_missed", 0),
+                 "intercepted": m.get("senas_intercepted", 0)}
         rows.append(_match_row(
             "tournament", str(path),
             f"{e.get('team_a')} vs {e.get('team_b')}",
             e.get("seed"), e.get("status", "done"),
             m.get("vacas_a"), m.get("vacas_b"), m.get("hands"),
-            m.get("hand_wins"), senas, m.get("bluffs", 0),
+            m.get("hand_wins"), senas,
+            # older summaries spelled this "bluffs"
+            m.get("false_senas_to_partner", m.get("bluffs", 0)),
             m.get("fallbacks", 0), m.get("rejections", 0),
-            m.get("llm_calls", 0), m.get("elapsed_s")))
+            m.get("llm_calls", 0), m.get("elapsed_s"),
+            m.get("piedras_a"), m.get("piedras_b")))
     return rows
 
 
@@ -210,15 +229,21 @@ def aggregate_results(results_dir: str | Path = "results") -> dict:
         if row["kind"] == "tournament":
             team_a, team_b = row["label"].split(" vs ", 1)
             _lb_add(lb, team_a, row["vacas_a"], row["vacas_b"],
-                    row["hands"], row)
+                    row["hands"], row, row["piedras_a"], row["piedras_b"])
             _lb_add(lb, team_b, row["vacas_b"], row["vacas_a"],
-                    row["hands"], row)
+                    row["hands"], row, row["piedras_b"], row["piedras_a"])
         elif row["kind"] == "batch" and row["label"].endswith(" vs baseline"):
             side = row["label"][: -len(" vs baseline")]
             _lb_add(lb, side, row["vacas_a"], row["vacas_b"],
-                    row["hands"], row)
-    leaderboard = sorted(lb.values(),
-                         key=lambda k: (k["vacas_for"] - k["vacas_against"],
-                                        k["vacas_for"]), reverse=True)
+                    row["hands"], row, row["piedras_a"], row["piedras_b"])
+    for k in lb.values():
+        k["piedras_per_hand"] = (
+            round((k["piedras_for"] - k["piedras_against"])
+                  / k["piedras_hands"], 3) if k["piedras_hands"] else None)
+    leaderboard = sorted(
+        lb.values(),
+        key=lambda k: (k["piedras_per_hand"] is not None,
+                       k["piedras_per_hand"] or 0.0,
+                       k["vacas_for"] - k["vacas_against"]), reverse=True)
     return {"sources": sources, "matches": matches,
             "leaderboard": leaderboard}

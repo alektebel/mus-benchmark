@@ -23,6 +23,7 @@ OpenRouter is not configured in the current strict harness.
 | `REASONING_MODE` | `minimal` | `omit` leaves the provider field out; other values are sent as `reasoning_effort`. Keep low so verbose reasoning does not truncate the answer |
 | `THINK_BUDGET` | 600 | Per-thought token ceiling sent as `max_tokens` and told to the model; escalation bound is `3x` |
 | `ALLOW_SEÑA_BLUFFS` | `1` | Broadcast gestures even when they do not match the sender's hand (`1`/`0`). Off = truthful signal channel |
+| `MUS_INTERCEPT_PROB` | `0.35` | Probability each opposing seat caught a given seña (rolled once at publish, seeded by the match seed). Intercepts arrive in the rival's prompt marked `INTERCEPTED from a rival`; the sender is never told. `0` restores the partner-only channel |
 | `MAX_RESP` / `MAX_RESP_CAP` | `THINK_BUDGET` / `THINK_BUDGET*3` | Legacy response budget and truncation escalation ceiling |
 | `NAN_TIMEOUT` | 180 seconds | Per-request timeout for either provider |
 | `RESP_RETRIES` | 3 | Malformed/truncated response attempts |
@@ -32,6 +33,10 @@ OpenRouter is not configured in the current strict harness.
 | `MAX_FALLBACK_RATE` | 0.15 | Abort threshold among LLM decision turns |
 | `FALLBACK_MIN_TURNS` | 10 | Minimum LLM turns before threshold applies |
 | `PROGRESS_FILE` | `progress.json` | Batch progress path |
+| `READ_PROBE` | `1` | Ask seats facing a bet for `p_win_lance` / `p_opp_fold`. Scored, never fed to the engine. `0` is the control arm |
+| `MAX_INFLIGHT` | `0` (off) | Cross-process cap on concurrent API requests. Set below the provider's parallel cap before raising `--workers` |
+| `INFLIGHT_DIR` | tmp | Where the in-flight slot files live |
+| `CB_COUNT_RATE_LIMIT` | `0` | `1` restores the old behaviour where a 429 counted toward the circuit breaker |
 
 The request timeout and retry sleeps are limited by the remaining match deadline.
 The HTTP library's timeout is a connect/read timeout, so this is not an
@@ -41,6 +46,8 @@ permanent client errors abort rather than retrying an incompatible payload.
 ```bash
 python run_match_strict.py --models "$MODEL,heuristic,$MODEL,heuristic" --hands 12 --seed 7
 python run_match_strict.py --teams "$MODEL_A" "$MODEL_B" --hands 12 --seed 7
+python run_tournament.py --hands 40 --seeds 6,7 --mirror --workers 4 --out results/run
+python analysis.py results/run/*.jsonl          # the scorecard
 python run_llm_vs_baseline.py --models "$MODEL" --hands 12 --seeds 0,1,2 --workers 1 --out batch.json
 python run_benchmark_strict.py --models "$MODEL,heuristic,$MODEL,heuristic" --hands 12 --seeds 0,1,2 --workers 1
 python dashboard.py --port 8000 --file progress.json

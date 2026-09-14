@@ -40,6 +40,7 @@ from groupchat import Channels
 from prompt_builder import build_prompt, redact_card_talk
 from agents import _make_agent, _default_legal, SeatBase
 from senas import SENAS, is_valid_sena, sena_truthful
+import signal_bus
 from signal_bus import SignalBus
 from signal_manager import (SignalManager, partner_of, silent_policy,
                             DEFAULT_TTL)
@@ -101,7 +102,8 @@ class LiveGame:
                                     allow_bluffs=ALLOW_SEÑA_BLUFFS)
                       for a in self.agents]
         self.ch = Channels()
-        self.bus = SignalBus()
+        self.bus = SignalBus(rng=Random(f"{seed}:signals"),
+                             intercept_prob=signal_bus.INTERCEPT_PROB)
         self.kernel = Kernel(rng=Random(seed + 1))
         self.version = 0
         self.events: list[dict] = []
@@ -124,12 +126,15 @@ class LiveGame:
         self.version += 1
 
     def _event(self, kind: str, text: str, seat: int | None = None,
-               to_seat: int | None = None, gesture: str | None = None):
+               to_seat: int | None = None, gesture: str | None = None,
+               **extra):
         self._event_seq += 1
-        self.events.append({"i": self._event_seq, "hand": self.hands_played,
-                            "kind": kind, "text": text, "seat": seat,
-                            "to_seat": to_seat, "gesture": gesture,
-                            "t": round(self.kernel.now, 2)})
+        ev = {"i": self._event_seq, "hand": self.hands_played,
+              "kind": kind, "text": text, "seat": seat,
+              "to_seat": to_seat, "gesture": gesture,
+              "t": round(self.kernel.now, 2)}
+        ev.update(extra)
+        self.events.append(ev)
         if len(self.events) > 600:
             self.events = self.events[-400:]
 
@@ -151,16 +156,18 @@ class LiveGame:
             return False
         if not truthful:
             agent.bluffs += 1
+        meaning = SENAS.get(gesture, ("?",))[0]
         if self.bus.gesture_live(from_seat, gesture, self.kernel.now):
             self._event("sena_note",
                         "tu compañero ya tiene esa seña en curso",
-                        seat=from_seat)
+                        seat=from_seat, gesture=gesture, meaning=meaning)
             return True
         self.procs[from_seat].published += 1
         self.bus.publish(from_seat, partner_of(from_seat), gesture,
                          self.kernel.now, DEFAULT_TTL, truthful)
         self._event("sena", "hizo una seña para su compañero", seat=from_seat,
-                    to_seat=partner_of(from_seat), gesture=gesture)
+                    to_seat=partner_of(from_seat), gesture=gesture,
+                    meaning=meaning, truthful=truthful)
         self.touch()
         return True
 
@@ -179,7 +186,11 @@ class LiveGame:
             self._event("chat", f"{agent.name}: \"{clean}\"", seat=agent.seat)
         thought = action.get("thought")
         if isinstance(thought, str) and thought.strip():
-            agent.thoughts.append(thought.strip())
+            thought = thought.strip()
+            agent.thoughts.append(thought)
+            agent.last_thought = thought
+            self._event("thought", f"{agent.name}: {thought}", seat=agent.seat,
+                        thought=thought)
         pol = action.get("signal_policy")
         if isinstance(pol, dict):
             if self.procs[agent.seat].install_policy(pol):
@@ -187,7 +198,6 @@ class LiveGame:
                                       f"señas ({len(pol.get('rules', []))} reglas)",
                             seat=agent.seat)
             else:
-                agent.invalid_policies += 1
                 self._event("policy", f"{agent.name}: política de señas "
                                       f"inválida (rechazada)", seat=agent.seat)
         sig = action.get("signal")
@@ -196,6 +206,55 @@ class LiveGame:
         if isinstance(sig, str) and sig.strip():
             if not self._publish_sena(agent.seat, sig, hand):
                 agent.invalid_signals += 1
+
+    # ------------- game narration (feed) -------------
+    ENVITE_ACTS = ("envido", "y-yo", "reenvido", "quiero", "no-quiero",
+                   "paso", "ordago")
+
+    def _narrate(self, agent, action: dict) -> None:
+        """Emit human-readable game events after an accepted engine action."""
+        eng = self.engine
+        name = (action or {}).get("action")
+        seat = agent.seat
+        if name in ("tengo", "no-tengo"):
+            lance = ""
+            if eng.phase in (Phase.ENVITE, Phase.DECLARE):
+                lance = f" en {LANCE_NAMES[eng.lance_index]}"
+            self._event("declare",
+                        f"{agent.name} declara "
+                        f"{'tengo' if name == 'tengo' else 'no tengo'}{lance}",
+                        seat=seat)
+        elif name in self.ENVITE_ACTS:
+            e = eng.envite
+            if name == "envido":
+                txt = f"{agent.name} envida 2"
+            elif name == "y-yo":
+                txt = f"{agent.name} sube: ¡y yo! (+2)"
+            elif name == "reenvido":
+                txt = f"{agent.name} reenvida (dobla)"
+            elif name == "quiero":
+                amt = (eng.locked_envites[-1][1] if eng.locked_envites
+                       else e.current)
+                txt = f"{agent.name} quiere ({amt})"
+            elif name == "no-quiero":
+                txt = f"{agent.name} no quiere"
+            elif name == "ordago":
+                txt = f"{agent.name} ¡órdago!"
+            else:
+                txt = f"{agent.name} pasa"
+            self._event("envite", txt, seat=seat)
+        elif name == "discard":
+            cards = action.get("cards") or []
+            self._event("discard",
+                        f"{agent.name} descarta {len(cards)} carta(s) al mus",
+                        seat=seat, cards=[str(c) for c in cards])
+        seen = getattr(self, "_seen_jugadas", 0)
+        new = eng.jugadas[seen:]
+        self._seen_jugadas = len(eng.jugadas)
+        for j in new:
+            w = ("equipo A" if j.winner_team == 0 else
+                 "equipo B" if j.winner_team == 1 else "nadie")
+            self._event("lance", f"{j.name}: gana {w}")
 
     # ------------- turns -------------
     def _llm_turn(self, agent, hand) -> dict:
@@ -221,6 +280,7 @@ class LiveGame:
             try:
                 self.engine.apply(agent.seat, action)
                 self._emit(agent, action, hand)
+                self._narrate(agent, action)
                 return action
             except IllegalAction as e:
                 last_error = str(e)
@@ -237,6 +297,7 @@ class LiveGame:
         self.engine.apply(agent.seat, action)
         self._event("fallback",
                     f"{agent.name}: acción legal por defecto", seat=agent.seat)
+        self._narrate(agent, action)
         return action
 
     def _human_turn(self, agent: HumanSeat, hand) -> None:
@@ -270,6 +331,7 @@ class LiveGame:
             try:
                 self.engine.apply(seat, item)
                 self._emit(agent, item, hand)
+                self._narrate(agent, item)
                 return
             except IllegalAction as e:
                 agent.rejections += 1
@@ -286,6 +348,7 @@ class LiveGame:
             action = _default_legal(self.engine, agent.seat)
             self.engine.apply(agent.seat, action)
             self._emit(agent, action, list(self.engine.hands[agent.seat]))
+            self._narrate(agent, action)
         except Exception as e:  # noqa: BLE001
             self.match_status = "error"
             self.error = f"{type(e).__name__}: {e}"
@@ -343,6 +406,7 @@ class LiveGame:
         self.human_error = {}
         self.last_delivered = []
         self.reveal = None
+        self._seen_jugadas = 0
         v_a0, v_b0 = engine.vacas_a, engine.vacas_b
         engine.deal()
         self.ch.clear()
@@ -351,6 +415,7 @@ class LiveGame:
             a.budget.reset()
             a.signals_read = 0
             a.want_signals = False
+            a.last_thought = None
         self._event("hand_start",
                     f"Mano {hand_no}/{self.hands} · mano (primer hablante): "
                     f"asiento {engine.mano}")
@@ -384,14 +449,23 @@ class LiveGame:
                     self.agents[mgr_seat].bluffs += 1
                 self._event("sena", "hizo una seña para su compañero",
                             seat=mgr_seat, to_seat=partner_of(mgr_seat),
-                            gesture=it.gesture)
+                            gesture=it.gesture,
+                            meaning=SENAS.get(it.gesture, ("?",))[0],
+                            truthful=it.truthful)
         delivered = self.bus.pending_for(seat, t0)
-        self.bus.deliver(delivered, t0)
+        self.bus.deliver(delivered, t0, seat=seat)
         self.last_delivered = delivered
         for ev in delivered:
-            self._event("sena_caught",
-                        f"captó una seña de {self.agents[ev.from_seat].name}",
-                        seat=seat, to_seat=ev.from_seat, gesture=ev.gesture)
+            if ev.to_seat == seat:
+                self._event("sena_caught",
+                            f"captó una seña de {self.agents[ev.from_seat].name}",
+                            seat=seat, to_seat=ev.from_seat, gesture=ev.gesture,
+                            meaning=SENAS.get(ev.gesture, ("?",))[0])
+            else:
+                self._event("sena_intercepted",
+                            f"interceptó una seña de {self.agents[ev.from_seat].name}",
+                            seat=seat, to_seat=ev.from_seat, gesture=ev.gesture,
+                            meaning=SENAS.get(ev.gesture, ("?",))[0])
         hand = list(engine.hands[seat])
         if agent.is_llm:
             self.stats["llm_turns"] += 1
@@ -411,6 +485,7 @@ class LiveGame:
             except IllegalAction:
                 action = _default_legal(engine, seat)
                 engine.apply(seat, action)
+            self._narrate(agent, action)
         self.stats["turns"] += 1
         self.kernel.now = t0 + window
         self.touch()
@@ -497,7 +572,8 @@ class LiveGame:
         return True, ""
 
     # ------------- snapshot (per-viewer, leak-free) -------------
-    def snapshot(self, token: str | None = None) -> dict:
+    def snapshot(self, token: str | None = None,
+                 reveal_all: bool = False) -> dict:
         engine = self.engine
         seat = self.seat_for_token(token)
         lance = LANCE_NAMES[engine.lance_index] \
@@ -516,6 +592,9 @@ class LiveGame:
                 "senas_sent": self.procs[s].published,
                 "bluffs": a.bluffs,
             })
+            if reveal_all:
+                seats[-1]["hand"] = [str(c) for c in engine.hands.get(s, [])]
+                seats[-1]["thought"] = getattr(a, "last_thought", None)
         envite = engine.envite
         holder = None
         if envite.holder is not None:
@@ -556,15 +635,26 @@ class LiveGame:
                           senas_published=sum(m.published for m in self.procs),
                           senas_caught=sum(1 for ev in self.bus.events
                                            if ev.delivered_at is not None),
+                          senas_intercepted=sum(
+                              1 for ev in self.bus.events
+                              if any(s in ev.seen_by
+                                     for s in ev.intercepted_by)),
                           bluffs=sum(a.bluffs for a in self.agents)),
         }
+        if reveal_all:
+            snap["director"] = True
         feed = []
         for ev in self.events[-300:]:
-            if ev["kind"] in ("sena", "sena_caught"):
-                authorized = (seat is not None
-                              and seat in (ev["seat"], ev["to_seat"]))
+            ev = dict(ev)
+            if ev.get("kind") in ("sena", "sena_caught", "sena_note",
+                                  "sena_rejected"):
+                authorized = reveal_all or (seat is not None
+                              and seat in (ev.get("seat"), ev.get("to_seat")))
                 if not authorized:
-                    ev = {**ev, "gesture": None}
+                    ev["gesture"] = None
+                    ev["meaning"] = None
+            if not reveal_all:
+                ev.pop("thought", None)
             feed.append(ev)
         snap["feed"] = feed
         if seat is not None:
@@ -652,6 +742,11 @@ class LiveHTTP(BaseHTTPRequestHandler):
                        ("Cache-Control", cache),
                        ("Content-Encoding", "gzip"),
                        ("Vary", "Accept-Encoding")]
+        origin = self.headers.get("Origin") or ""
+        if origin and origin in _allow_origins:
+            headers += [("Access-Control-Allow-Origin", origin),
+                        ("Access-Control-Allow-Credentials", "true"),
+                        ("Vary", "Origin")]
         self.send_response(code)
         for k, v in headers:
             self.send_header(k, v)
@@ -677,7 +772,9 @@ class LiveHTTP(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
-        token = (parse_qs(parsed.query).get("token") or [None])[0]
+        q = parse_qs(parsed.query)
+        token = (q.get("token") or [None])[0]
+        reveal_all = (q.get("reveal") or ["all"])[0] != "none"
         if parsed.path in ("/", "/index.html"):
             self._send(200, INDEX_HTML.encode("utf8"), "text/html; charset=utf-8")
         elif parsed.path.startswith("/cards/"):
@@ -685,18 +782,26 @@ class LiveHTTP(BaseHTTPRequestHandler):
             if not self._serve_card(name):
                 self._send(404, b"not found", "text/plain")
         elif parsed.path == "/events":
-            self._sse(token)
+            self._sse(token, reveal_all)
         elif parsed.path == "/snapshot":
             try:
-                self._json(_table.current().snapshot(token))
+                tbl = _table_for(self)
+                if tbl is None:
+                    self._json({"error": "no session", "need_new": True}, 409)
+                    return
+                self._json(tbl.current().snapshot(token, reveal_all))
             except Exception as e:  # noqa: BLE001 -- never 500 the table
                 self._json({"error": f"snapshot failed: {e}"}, 500)
         elif parsed.path == "/api/results":
             self._json(aggregate_results(RESULTS_DIR))
+        elif parsed.path == "/api/status":
+            self._json(_status_payload())
+        elif parsed.path == "/healthz":
+            self._send(200, b"ok", "text/plain")
         else:
             self._send(404, b"not found", "text/plain")
 
-    def _sse(self, token: str | None):
+    def _sse(self, token: str | None, reveal_all: bool = False):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
@@ -705,11 +810,15 @@ class LiveHTTP(BaseHTTPRequestHandler):
         last_beat = time.monotonic()
         try:
             while True:
-                g = _table.current()
+                tbl = _table_for(self)
+                if tbl is None:
+                    break
+                g = tbl.current()
                 marker_now = (g.epoch, g.version)
                 if marker_now != marker:
                     try:
-                        payload = json.dumps(g.snapshot(token), ensure_ascii=False)
+                        payload = json.dumps(g.snapshot(token, reveal_all),
+                                             ensure_ascii=False)
                     except Exception:  # noqa: BLE001 -- skip bad frame, retry
                         time.sleep(0.3)
                         continue
@@ -725,10 +834,98 @@ class LiveHTTP(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, OSError):
             return
 
+    def _new_game(self, body: dict) -> None:
+        """Start a match. Local mode restarts the one table; public mode gives
+        this browser its own, subject to IP, concurrency and budget limits."""
+        if not _public:
+            tbl = _table
+            seat = tbl.current().seat_for_token(body.get("token"))
+            if seat is None:
+                self._json({"ok": False,
+                            "error": "solo los asientos humanos pueden "
+                                     "reiniciar la partida"}, 403)
+                return
+            hands, seed = body.get("hands"), body.get("seed")
+            g2 = tbl.start_new(hands=hands if isinstance(hands, int) else None,
+                               seed=seed if isinstance(seed, int) else None)
+            self._json({"ok": True, "epoch": g2.epoch})
+            return
+
+        if not _iplimit.allow(_client_ip(self)):
+            self._json({"ok": False, "error": "demasiadas partidas desde esta "
+                        "direcci\u00f3n; prueba dentro de un rato.",
+                        "retry": True}, 429)
+            return
+
+        sid = _session_id(self, body) or _registry.new_sid()
+        sess, note = _registry.create(sid)
+        if sess is None:
+            self._json({"ok": False, "error": "la mesa est\u00e1 llena ahora "
+                        "mismo; prueba en unos minutos.", "retry": True}, 503)
+            return
+
+        game = sess.table.current()
+        human = game.human_agents[0] if game.human_agents else None
+        payload = {"ok": True, "epoch": game.epoch, "sid": sid,
+                   "token": human.token if human else None,
+                   "llm": sess.llm, "note": note}
+        if note == "budget":
+            payload["message"] = ("Presupuesto diario de API agotado: juegas "
+                                  "contra las pol\u00edticas offline.")
+        elif note == "busy":
+            payload["message"] = ("Todas las mesas con modelos est\u00e1n "
+                                  "ocupadas: juegas contra las pol\u00edticas "
+                                  "offline.")
+        body_bytes = json.dumps(payload).encode("utf8")
+        self._send_with_cookie(200, body_bytes, sid)
+
+    def _send_with_cookie(self, code: int, body: bytes, sid: str) -> None:
+        origin = self.headers.get("Origin") or ""
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        https = (self.headers.get("X-Forwarded-Proto")
+                 or self.headers.get("Fly-Forwarded-Proto") or "") == "https"
+        flags = "HttpOnly; Secure; SameSite=None" if https else "HttpOnly; SameSite=Lax"
+        self.send_header("Set-Cookie",
+                         f"{SID_COOKIE}={sid}; Path=/; Max-Age=86400; {flags}")
+        if origin and origin in _allow_origins:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Vary", "Origin")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+
+    def do_OPTIONS(self):  # noqa: N802
+        origin = self.headers.get("Origin") or ""
+        self.send_response(204)
+        if origin and origin in _allow_origins:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers",
+                             "Content-Type, X-Mus-Session")
+            self.send_header("Access-Control-Max-Age", "86400")
+            self.send_header("Vary", "Origin")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_POST(self):  # noqa: N802
         path = urlparse(self.path).path
         body = _json_body(self)
-        g = _table.current()
+        if path == "/api/new":
+            self._new_game(body)
+            return
+        tbl = _table_for(self, body)
+        if tbl is None:
+            self._json({"ok": False, "error": "sin partida; pulsa "
+                        "\u00abNueva partida\u00bb", "need_new": True}, 409)
+            return
+        g = tbl.current()
         seat = g.seat_for_token(body.get("token"))
         if path == "/api/action":
             if seat is None:
@@ -753,23 +950,80 @@ class LiveHTTP(BaseHTTPRequestHandler):
                 return
             ok, err = g.say(seat, body.get("text", ""))
             self._json({"ok": ok, "error": err})
-        elif path == "/api/new":
-            if seat is None:
-                self._json({"ok": False,
-                            "error": "solo los asientos humanos pueden "
-                                     "reiniciar la partida"}, 403)
-                return
-            hands = body.get("hands")
-            seed = body.get("seed")
-            g2 = _table.start_new(
-                hands=hands if isinstance(hands, int) else None,
-                seed=seed if isinstance(seed, int) else None)
-            self._json({"ok": True, "epoch": g2.epoch})
         else:
             self._send(404, b"not found", "text/plain")
 
 
 _table: LiveTable | None = None  # set by main(); handlers read the live table
+
+# ---- public hosting (set by main() when --public is given) ----
+# In local mode every handler uses the single global _table, exactly as before.
+# In public mode each browser gets its own LiveTable via a session cookie.
+_public = False
+_registry = None          # live_public.SessionRegistry
+_budget = None            # live_public.Budget
+_iplimit = None           # live_public.IPLimiter
+_allow_origins: set[str] = set()
+SID_COOKIE = "mus_sid"
+
+
+def _session_id(handler, body: dict | None = None) -> str | None:
+    """Resolve this browser's session.
+
+    An API on fly.dev serving a page on github.io means any cookie it sets is
+    a THIRD-PARTY cookie -- blocked by default in Safari and Firefox. So the
+    session id travels explicitly (header, query or body, kept in
+    localStorage by the page); the cookie is only a same-origin convenience
+    for people running this server locally.
+    """
+    sid = handler.headers.get("X-Mus-Session")
+    if sid:
+        return sid
+    if body:
+        v = body.get("sid")
+        if isinstance(v, str) and v:
+            return v
+    q = parse_qs(urlparse(handler.path).query)
+    v = (q.get("sid") or [None])[0]
+    if v:
+        return v
+    raw = handler.headers.get("Cookie") or ""
+    for part in raw.split(";"):
+        k, _, val = part.strip().partition("=")
+        if k == SID_COOKIE and val:
+            return val
+    return None
+
+
+def _client_ip(handler) -> str:
+    # Fly terminates TLS and forwards the real address; trust it only for
+    # rate-limiting, never for anything security-bearing.
+    fwd = handler.headers.get("Fly-Client-IP") or \
+        handler.headers.get("X-Forwarded-For") or ""
+    if fwd:
+        return fwd.split(",")[0].strip()
+    try:
+        return handler.client_address[0]
+    except Exception:  # noqa: BLE001
+        return "?"
+
+
+def _status_payload() -> dict:
+    """Public health/'is it worth playing right now' summary."""
+    if not _public:
+        return {"public": False, "ok": True}
+    out = {"public": True, "ok": True}
+    out.update(_registry.status())
+    out["budget"] = _budget.status()
+    return out
+
+
+def _table_for(handler, body: dict | None = None) -> LiveTable | None:
+    """The LiveTable this request should act on."""
+    if not _public:
+        return _table
+    sess = _registry.get(_session_id(handler, body))
+    return sess.table if sess is not None else None
 
 
 def main():
@@ -777,7 +1031,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", type=int, default=8123)
     ap.add_argument("--seats",
-                    default="human,glm5.3-flash,deepseek-v4-flash,heuristic",
+                    default=os.environ.get(
+                        "MUS_SEATS",
+                        "human,glm5.3-flash,deepseek-v4-flash,heuristic"),
                     help="4 specs (comma-separated): 'human', an LLM model "
                          "spec (provider:model), or heuristic/random. "
                          "Seats 0+2 are team A, 1+3 team B.")
@@ -787,6 +1043,12 @@ def main():
                     help="directory scanned for bench results "
                          "(summary.json / batch outputs)")
     ap.add_argument("--host", default="0.0.0.0")
+    ap.add_argument("--public", action="store_true",
+                    help="multi-session public mode: one table per browser, "
+                         "daily API budget, per-IP and concurrency limits")
+    ap.add_argument("--allow-origin", action="append", default=[],
+                    help="origin allowed to call this API with credentials "
+                         "(repeatable), e.g. https://alektebel.github.io")
     args = ap.parse_args()
 
     if args.results_dir is not None:
@@ -796,6 +1058,65 @@ def main():
     specs = [s.strip() for s in args.seats.split(",")]
     if len(specs) != 4 or any(not s for s in specs):
         ap.error("--seats requires exactly four non-empty comma-separated specs")
+
+    if args.public:
+        import live_public
+
+        global _public, _registry, _budget, _iplimit, _allow_origins
+        _public = True
+        _budget = live_public.Budget()
+        _iplimit = live_public.IPLimiter()
+        _allow_origins = set(args.allow_origin or []) | set(
+            o for o in os.environ.get("MUS_ALLOW_ORIGINS", "").split(",") if o)
+
+        def _factory(llm: bool, hands: int):
+            # Seats are rebuilt per session so one browser's budget-exhausted
+            # table cannot hand offline seats to somebody else's game.
+            tbl = LiveTable(live_public.public_specs(specs, llm),
+                            hands=hands, seed=args.seed)
+            original = tbl.start_new
+            state = {"llm": llm}
+
+            def start_new(*a, **kw):
+                # Agents are constructed inside start_new(), so this is the
+                # only place that can catch a bad seat spec (missing API key,
+                # unknown provider). A table dealing heuristic hands beats one
+                # that 500s on every new game.
+                try:
+                    game = original(*a, **kw)
+                except Exception as e:  # noqa: BLE001
+                    if not state["llm"]:
+                        raise
+                    print(f"  [seats] offline fallback: {e}", flush=True)
+                    state["llm"] = False
+                    tbl.specs = live_public.public_specs(specs, False)
+                    game = original(*a, **kw)
+                if state["llm"]:
+                    game.agents = [live_public.budgeted_agent(ag, _budget)
+                                   for ag in game.agents]
+                tbl.llm_active = state["llm"]
+                return game
+
+            tbl.start_new = start_new
+            tbl.llm_active = llm
+            return tbl
+
+        _registry = live_public.SessionRegistry(_factory, _budget)
+        print(f"mus en vivo (PUBLIC) — http://{args.host}:{args.port}/",
+              flush=True)
+        print(f"  origins permitidos: {sorted(_allow_origins) or '(none)'}",
+              flush=True)
+        print(f"  presupuesto diario: {_budget.status()}", flush=True)
+        print(f"  manos por partida: {live_public.PUBLIC_HANDS} · "
+              f"sesiones max {live_public.MAX_SESSIONS} "
+              f"(con modelos {live_public.MAX_LLM_SESSIONS})", flush=True)
+        server = ThreadingHTTPServer((args.host, args.port), LiveHTTP)
+        server.daemon_threads = True
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        return
 
     _table = LiveTable(specs, hands=args.hands, seed=args.seed)
     _table.start_new()
