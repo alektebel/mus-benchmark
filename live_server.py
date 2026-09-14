@@ -805,6 +805,13 @@ class LiveHTTP(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
+        # the static Pages deploy connects cross-origin; without ACAO the
+        # browser kills the stream and the page sits on "reconectando…"
+        origin = self.headers.get("Origin") or ""
+        if origin and origin in _allow_origins:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Vary", "Origin")
         self.end_headers()
         marker = None
         last_beat = time.monotonic()
