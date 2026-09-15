@@ -394,6 +394,49 @@ aside{display:flex;flex-direction:column;min-height:0;
   #board{min-height:0}
 }
 
+/* phones: the table is the page -- shrink the board, keep the action bar
+   reachable, panels stack below */
+@media (max-width:640px){
+  .wrap,.hero,.section{padding-left:var(--space-4);padding-right:var(--space-4)}
+  .hero{padding-top:var(--space-5);padding-bottom:var(--space-5);gap:var(--space-4)}
+  .hero h1{font-size:clamp(30px,8.5vw,40px)}
+  .hero-fan{display:none}
+  .nav-links{gap:var(--space-3);font-size:12px}
+  .topbar{gap:var(--space-2)}
+  .section{padding-top:var(--space-5);padding-bottom:var(--space-5)}
+
+  #matchbar{gap:var(--space-2)}
+  #matchbar .mb-team{min-width:86px}
+  #matchbar .mb-pts b{font-size:16px}
+  #matchbar .mb-mid{gap:var(--space-2);font-size:12px}
+  .scoregroup .v{font-size:20px}
+
+  #board{min-height:0;padding:var(--space-2);gap:var(--space-2)}
+  .seat{padding:var(--space-2);gap:4px}
+  .seat .head{font-size:10px}
+  .seat .say{max-width:120px;font-size:10px;min-height:24px}
+  .seat .meta{font-size:8px}
+  .pcard{width:38px;height:58px}
+  .fan{padding-left:12px}
+  .fan .pcard{margin-left:-12px}
+  .seat.s0 .pcard{width:52px;height:79px}
+  #mycards{gap:6px}
+  #mycards .pcard.sel{transform:translateY(-8px)}
+  .hole{transform:scale(.92)}
+
+  #btns{position:sticky;bottom:0;z-index:50;
+    padding:var(--space-2);margin:0 calc(-1 * var(--space-3));
+    background:color-mix(in srgb,var(--color-bg) 92%,transparent);
+    backdrop-filter:blur(6px);border-top:1px solid var(--color-divider)}
+  .abtn{flex:1 1 auto;min-height:44px;font-size:13px;text-align:center}
+
+  aside{position:static;max-height:none}
+  .sena-btn{min-height:40px}
+  #feed{max-height:240px}
+  .gallery .pcard{width:62px;height:95px}
+  .lances{grid-template-columns:1fr}
+}
+
 /* ══ full-page shell (design reference: "Mus contra la máquina") ═════════
    The live table is the centre of a marketing-style page: nav, hero with a
    fan of the real deck, La mesa, La baraja gallery and los cuatro lances. */
@@ -492,7 +535,7 @@ footer.pagefoot{border-top:1px solid var(--color-divider);padding:var(--space-6)
       <a href="#reglas">Reglas</a>
     </nav>
     <div id="status">conectando…</div>
-    <button id="newmatch" class="btn btn-secondary" title="Empieza otra partida con los mismos jugadores">Nueva partida</button>
+    <button id="newmatch" class="btn btn-secondary" title="Empieza una vaca nueva contra los mismos jugadores">Nueva vaca</button>
     <div id="matchbar">
       <div class="mb-team a">
         <span class="mb-name" id="mb-name-a">Equipo A</span>
@@ -914,8 +957,9 @@ function renderBoard(){
   $('mb-pb').textContent = S.scores.points_b;
   $('mb-va').textContent = S.scores.vacas_a;
   $('mb-vb').textContent = S.scores.vacas_b;
-  $('mb-hand').textContent = 'mano ' + (S.scores.hands_played || 0) +
-    '/' + (S.config.hands || '?');
+  $('mb-hand').textContent = S.config.vaca_limit
+    ? ('mano ' + (S.scores.hands_played || 0) + ' · una vaca')
+    : ('mano ' + (S.scores.hands_played || 0) + '/' + (S.config.hands || '?'));
   $('mb-lance').textContent = S.lance || $('phase').textContent;
   const who = (S.thinking_seat != null) ? S.thinking_seat : S.turn;
   const wname = (S.seats[who] && S.seats[who].name) || ('asiento ' + who);
@@ -1048,11 +1092,9 @@ $('sendchat').onclick = () => {
 };
 $('chatinput').addEventListener('keydown', e => { if(e.key === 'Enter') $('sendchat').onclick(); });
 $('newmatch').onclick = () => {
-  const hands = prompt('¿Cuántas manos?', String((S && S.config && S.config.hands) || 12));
-  if(!hands) return;
   fetch('/api/new',{method:'POST',headers:apiHeaders(),
-    body:JSON.stringify({token:TOKEN, sid:SID, hands:parseInt(hands,10)})})
-   .then(r => r.json()).then(d => { if(d.ok) adoptSession(d); });
+    body:JSON.stringify({token:TOKEN, sid:SID})})
+   .then(r => r.json()).then(d => { if(d.ok) adoptSession(d); else flash(d.error); });
 };
 
 /* ---------- senas tab ---------- */
@@ -1226,7 +1268,9 @@ function render(){
     });
   }
   $('status').textContent = S.status === 'running'
-    ? ('mano ' + (S.scores.hands_played || 0) + '/' + S.config.hands)
+    ? (S.config.vaca_limit
+        ? ('mano ' + (S.scores.hands_played || 0) + ' · una vaca')
+        : ('mano ' + (S.scores.hands_played || 0) + '/' + S.config.hands))
     : S.status;
 }
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }

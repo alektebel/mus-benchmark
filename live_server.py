@@ -40,6 +40,7 @@ from groupchat import Channels
 from prompt_builder import build_prompt, redact_card_talk
 from agents import _make_agent, _default_legal, SeatBase
 from senas import SENAS, is_valid_sena, sena_truthful
+import trace_store
 import signal_bus
 from signal_bus import SignalBus
 from signal_manager import (SignalManager, partner_of, silent_policy,
@@ -86,12 +87,16 @@ def _make_agent_or_human(spec: str, seat: int, seed: int = 0):
 class LiveGame:
     """One match on one engine, kernel sena layer, human seats allowed."""
 
-    def __init__(self, specs: list[str], hands: int = 12, seed: int = 0):
+    def __init__(self, specs: list[str], hands: int = 12, seed: int = 0,
+                 vaca_limit: int = 0):
         if len(specs) != 4 or any(not s for s in specs):
             raise ValueError("exactly four non-empty seat specs are required")
         self.specs = list(specs)
         self.hands = hands
         self.seed = seed
+        self.vaca_limit = vaca_limit
+        self.sid: str | None = None
+        self.io_log: list[dict] = []
         self.engine = MusEngine(rng=Random(seed))
         self.agents = [_make_agent_or_human(s, i, seed)
                        for i, s in enumerate(specs)]
@@ -281,6 +286,16 @@ class LiveGame:
                 self.engine.apply(agent.seat, action)
                 self._emit(agent, action, hand)
                 self._narrate(agent, action)
+                io = getattr(agent, "last_io", None) or {}
+                self.io_log.append({
+                    "t": round(self.kernel.now, 2),
+                    "phase": self.engine.phase.name, "seat": agent.seat,
+                    "model": getattr(agent, "model", None),
+                    "prompt": io.get("prompt"), "raw": io.get("raw"),
+                    "action": action, "seen": [
+                        {"from": ev.from_seat, "gesture": ev.gesture,
+                         "stolen": ev.to_seat != agent.seat}
+                        for ev in (self.last_delivered or [])]})
                 return action
             except IllegalAction as e:
                 last_error = str(e)
@@ -380,11 +395,19 @@ class LiveGame:
             self.error = f"{type(e).__name__}: {e}"
             self._event("error", f"error inesperado: {self.error}")
             self.touch()
+        finally:
+            # one trace per game, however it ended
+            trace_store.save_trace(self.sid, trace_store.build_record(self))
 
     def _run_match(self):
-        self._event("match", f"Nueva partida a {self.hands} manos (seed "
-                             f"{self.seed}). Equipo A = asientos 0 y 2 · "
-                             f"Equipo B = asientos 1 y 3.")
+        if self.vaca_limit:
+            self._event("match", f"Nueva partida: una vaca a 40 piedras "
+                                 f"(seed {self.seed}). Equipo A = asientos 0 "
+                                 f"y 2 · Equipo B = asientos 1 y 3.")
+        else:
+            self._event("match", f"Nueva partida a {self.hands} manos (seed "
+                                 f"{self.seed}). Equipo A = asientos 0 y 2 · "
+                                 f"Equipo B = asientos 1 y 3.")
         self.touch()
         for h in range(self.hands):
             if self.stopped.is_set():
@@ -394,6 +417,9 @@ class LiveGame:
             self.play_hand(h + 1)
             if self.match_status == "error":
                 return
+            if self.vaca_limit and \
+                    self.engine.vacas_a + self.engine.vacas_b >= self.vaca_limit:
+                break        # the vaca is decided: that was the whole match
         self.match_status = "finished"
         self._event("match_end",
                     f"Fin de la partida: vacas {self.engine.vacas_a}"
@@ -417,7 +443,7 @@ class LiveGame:
             a.want_signals = False
             a.last_thought = None
         self._event("hand_start",
-                    f"Mano {hand_no}/{self.hands} · mano (primer hablante): "
+                    f"Mano {hand_no} · mano (primer hablante): "
                     f"asiento {engine.mano}")
         self.touch()
         turns = 0
@@ -629,7 +655,7 @@ class LiveGame:
             "reveal": self.reveal,
             "history": self.history[-20:],
             "config": {"seats": self.specs, "hands": self.hands,
-                       "seed": self.seed},
+                       "seed": self.seed, "vaca_limit": self.vaca_limit},
             "senas_vocab": {g: m for g, (m, _src) in SENAS.items()},
             "stats": dict(self.stats,
                           senas_published=sum(m.published for m in self.procs),
@@ -680,16 +706,18 @@ class LiveGame:
 class LiveTable:
     """Owns the current LiveGame; supports restarting the match on demand."""
 
-    def __init__(self, specs: list[str], hands: int = 12, seed: int = 0):
+    def __init__(self, specs: list[str], hands: int = 12, seed: int = 0,
+                 vaca_limit: int = 0):
         self.specs = list(specs)
         self.hands = hands
         self.seed = seed
+        self.vaca_limit = vaca_limit
         self.epoch = 0
         self.game: LiveGame | None = None
         self._lock = threading.Lock()
 
     def start_new(self, hands: int | None = None,
-                  seed: int | None = None) -> LiveGame:
+                  seed: int | None = None, vaca_limit: int | None = None) -> LiveGame:
         with self._lock:
             if self.game is not None:
                 self.game.stop()
@@ -698,7 +726,9 @@ class LiveTable:
                 self.hands = hands
             if seed is not None:
                 self.seed = seed
-            self.game = LiveGame(self.specs, hands=self.hands, seed=self.seed)
+            vl = self.vaca_limit if vaca_limit is None else vaca_limit
+            self.game = LiveGame(self.specs, hands=self.hands, seed=self.seed,
+                                 vaca_limit=vl)
             self.game.epoch = self.epoch
             self.game.start()
             return self.game
@@ -852,7 +882,18 @@ class LiveHTTP(BaseHTTPRequestHandler):
 
     def _new_game(self, body: dict) -> None:
         """Start a match. Local mode restarts the one table; public mode gives
-        this browser its own, subject to IP, concurrency and budget limits."""
+        this browser its own, subject to IP, concurrency and budget limits.
+
+        Default match shape is ONE VACA (first team to 40 piedras): the page
+        no longer asks for a number of hands. An explicit integer `hands` in
+        the body opts back into the fixed-length mode."""
+        hands_in = body.get("hands")
+        fixed_hands = hands_in if isinstance(hands_in, int) and hands_in > 0 \
+            else None
+        vaca_limit = 0 if fixed_hands else 1
+        # a vaca can legitimately run long; 40 hands is a hard safety cap
+        hands = fixed_hands or 40
+
         if not _public:
             tbl = _table
             seat = tbl.current().seat_for_token(body.get("token"))
@@ -861,10 +902,11 @@ class LiveHTTP(BaseHTTPRequestHandler):
                             "error": "solo los asientos humanos pueden "
                                      "reiniciar la partida"}, 403)
                 return
-            hands, seed = body.get("hands"), body.get("seed")
-            g2 = tbl.start_new(hands=hands if isinstance(hands, int) else None,
-                               seed=seed if isinstance(seed, int) else None)
-            self._json({"ok": True, "epoch": g2.epoch})
+            seed = body.get("seed")
+            g2 = tbl.start_new(hands=hands,
+                               seed=seed if isinstance(seed, int) else None,
+                               vaca_limit=vaca_limit)
+            self._json({"ok": True, "epoch": g2.epoch, "vaca": bool(vaca_limit)})
             return
 
         if not _iplimit.allow(_client_ip(self)):
@@ -874,7 +916,7 @@ class LiveHTTP(BaseHTTPRequestHandler):
             return
 
         sid = _session_id(self, body) or _registry.new_sid()
-        sess, note = _registry.create(sid)
+        sess, note = _registry.create(sid, hands=hands, vaca_limit=vaca_limit)
         if sess is None:
             self._json({"ok": False, "error": "la mesa est\u00e1 llena ahora "
                         "mismo; prueba en unos minutos.", "retry": True}, 503)

@@ -24,6 +24,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+import trace_store
+
 # ---- tunables (env-overridable so Fly can change them without a redeploy) ----
 DAILY_CALL_BUDGET = int(os.environ.get("MUS_DAILY_CALL_BUDGET", "4000"))
 SESSION_CALL_CAP = int(os.environ.get("MUS_SESSION_CALL_CAP", "240"))
@@ -179,7 +181,8 @@ class SessionRegistry:
         with self._lock:
             return sum(1 for s in self._sessions.values() if s.llm)
 
-    def create(self, sid: str, hands: int = PUBLIC_HANDS) -> tuple[Session | None, str]:
+    def create(self, sid: str, hands: int = PUBLIC_HANDS,
+               vaca_limit: int = 0) -> tuple[Session | None, str]:
         """Make a table for sid. Returns (session, reason-if-degraded-or-refused)."""
         with self._lock:
             self._evict_locked()
@@ -200,8 +203,9 @@ class SessionRegistry:
                 self._stop(old)
 
             table = self._factory(llm=llm, hands=hands)
-            table.start_new()
+            table.start_new(vaca_limit=vaca_limit)
             game = table.current()
+            game.sid = sid
             # the factory downgrades to offline seats if the models cannot be
             # built at all (no API key); trust what it actually dealt
             if getattr(table, "llm_active", llm) is False and llm:
@@ -224,6 +228,8 @@ class SessionRegistry:
         try:
             game = sess.table.current()
             if game is not None:
+                # persist whatever happened before tearing the table down
+                trace_store.save_trace(sess.sid, trace_store.build_record(game))
                 game.stop()
         except Exception:  # noqa: BLE001 -- teardown must never raise
             pass
