@@ -26,10 +26,14 @@ log = logging.getLogger("mus.trace")
 
 TABLE = os.environ.get("MUS_TRACE_TABLE", "mus-traces")
 TTL_DAYS = int(os.environ.get("MUS_TRACE_TTL_DAYS", "120"))
+REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") \
+    or "eu-west-1"
 
 try:  # optional dependency: offline machines keep working without it
     import boto3  # type: ignore
-    _client = boto3.client("dynamodb")
+    # region must be explicit: an EC2 box has no default region in its env,
+    # and boto3.client() raises NoRegionError instead of using the metadata
+    _client = boto3.client("dynamodb", region_name=REGION)
 except Exception:  # noqa: BLE001 -- no boto3 / no region / no creds
     _client = None
 
