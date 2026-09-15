@@ -52,7 +52,7 @@ def save_trace(sid: str | None, record: dict) -> bool:
             json.dumps(record, ensure_ascii=False, default=str).encode("utf8"))
         _client.put_item(TableName=TABLE, Item={
             "pk": {"S": sid},
-            "sk": {"S": str(now)},
+            "sk": {"N": str(now)},   # table keys: pk S, sk N
             "tte": {"N": str(now + TTL_DAYS * 86400)},
             "gz": {"B": blob},
         })
