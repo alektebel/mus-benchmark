@@ -166,10 +166,14 @@ nav.views a:hover{color:var(--color-accent-200)}
 .me .mywho .avatar img{width:22px;height:22px}
 .me .mywho .name{font-size:15px}
 .me .myrow{display:flex;align-items:center;justify-content:center;gap:clamp(21px,3vw,55px);flex-wrap:wrap;width:min(100%,890px)}
-.say{min-height:21px;display:flex;justify-content:center;text-align:center;max-width:240px}
+.voice{display:flex;flex-direction:column;align-items:center;gap:4px;min-height:42px;text-align:center;max-width:260px}
+.say{min-height:18px;display:flex;justify-content:center;text-align:center;width:100%}
 .say .thinkingtxt{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--color-neutral-500);animation:breathe 1.2s ease-in-out infinite}
-.say .line{font-size:14px;line-height:1.4;color:var(--color-neutral-100);font-style:italic;animation:speak 3.6s ease forwards;text-wrap:balance}
+.say .line{font-size:14px;line-height:1.35;color:var(--color-neutral-100);font-style:italic;animation:speak 4.8s ease forwards;text-wrap:balance}
 .say .gest{font-size:11px;color:var(--color-accent-300);animation:speak 4.2s ease forwards}
+.call{min-height:16px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--color-neutral-500);opacity:0;transition:opacity .25s,color .25s}
+.call.on{opacity:1;color:var(--color-accent-200)}
+.call.hot{color:var(--color-accent-100)}
 
 /* cards — Spanish deck ≈ φ (55×89) */
 .pc{position:relative;border-radius:calc(var(--radius-md) - 1px);overflow:hidden;background:#fbfbf7;box-shadow:0 4px 14px rgba(9,10,18,.5);flex:0 0 auto}
@@ -427,7 +431,10 @@ footer.foot a{color:var(--color-neutral-400)}
             </div>
             <div class="myhand" id="myhand"><div class="fxlayer" id="myfx"></div></div>
           </div>
-          <div class="say" id="mysay"></div>
+          <div class="voice">
+            <div class="say" id="mysay"></div>
+            <div class="call" id="mycall" aria-live="polite"></div>
+          </div>
           <div class="myinfo" id="myinfo"></div>
           <div class="err" id="err" role="alert"></div>
           <div class="btns" id="btns"></div>
@@ -715,13 +722,14 @@ const seatEls = {};
 ['left','top','right'].forEach(a => {
   const root = $('seat-' + a);
   root.innerHTML = '<div class="meta"><div class="who"><div class="avatar"></div><div class="nm"><span class="name"></span><span class="role"></span></div></div>' +
-    '<div class="say"></div></div><div class="hand"><div class="fxlayer"></div></div>';
+    '<div class="voice"><div class="say"></div><div class="call" aria-live="polite"></div></div></div><div class="hand"><div class="fxlayer"></div></div>';
   seatEls[a] = {root, avatar:root.querySelector('.avatar'), name:root.querySelector('.name'), role:root.querySelector('.role'),
-    hand:root.querySelector('.hand'), fx:root.querySelector('.fxlayer'), say:root.querySelector('.say'), sig:null, speech:null};
+    hand:root.querySelector('.hand'), fx:root.querySelector('.fxlayer'), say:root.querySelector('.say'),
+    call:root.querySelector('.call'), sig:null, speech:null};
   ensureTimer(seatEls[a].avatar);
 });
 seatEls.me = {root:$('you'), avatar:$('myavatar'), name:$('myname'), role:$('myrole'),
-  hand:$('myhand'), fx:$('myfx'), say:$('mysay'), sig:null, speech:null};
+  hand:$('myhand'), fx:$('myfx'), say:$('mysay'), call:$('mycall'), sig:null, speech:null};
 ensureTimer(seatEls.me.avatar);
 
 let selected = new Set();
@@ -1048,19 +1056,46 @@ function actionOf(ev){
     if(/reenvida/.test(t)) return 'reenvido'; if(/y yo/.test(t)) return 'y-yo'; if(/envida/.test(t)) return 'envido'; return 'paso';
   }
   if(ev.kind === 'declare') return /no tengo/.test(t) ? 'no-tengo' : 'tengo';
+  if(ev.kind === 'mus') return /no hay mus|corta/i.test(t) ? 'no' : 'mus';
+  if(ev.kind === 'discard') return 'discard';
   return null;
+}
+function decisionLine(ev){
+  const a = actionOf(ev);
+  if(ev.kind === 'discard'){
+    const n = Number(ev.n != null ? ev.n : ((ev.cards || []).length || 0));
+    if(!n) return 'descarta';
+    return n === 1 ? 'descarta 1 carta' : 'descarta ' + n + ' cartas';
+  }
+  if(ev.kind === 'declare'){
+    const lance = S && S.lance ? String(S.lance).toLowerCase() : '';
+    if(a === 'no-tengo') return lance ? 'no tengo ' + lance : 'no tengo';
+    return lance ? 'tengo ' + lance : 'tengo';
+  }
+  return SAY[a] || '';
 }
 function speak(area, text, cls){
   const E = seatEls[area]; if(!E || !text) return;
-  if(area !== 'me' && E.say.querySelector('.thinkingtxt')) return;
+  // Keep the spoken line even over "pensando" — the decision just landed.
   const n = el('div', cls || 'line', '«' + esc(text) + '»');
   E.say.replaceChildren(n);
   const id = Math.random(); E.speech = id;
-  setTimeout(() => { if(E.speech === id && n.parentNode) n.remove(); }, cls === 'gest' ? 4200 : 3600);
+  setTimeout(() => { if(E.speech === id && n.parentNode) n.remove(); }, cls === 'gest' ? 4200 : 5200);
 }
+function setCall(area, text, hot){
+  const E = seatEls[area]; if(!E || !E.call) return;
+  E.call.textContent = text || '';
+  E.call.classList.toggle('on', !!text);
+  E.call.classList.toggle('hot', !!(text && hot));
+  if(text && hot){
+    clearTimeout(E.callHot);
+    E.callHot = setTimeout(() => E.call && E.call.classList.remove('hot'), 2800);
+  }
+}
+function clearCalls(){ ['left','top','right','me'].forEach(a => setCall(a, '')); }
 function seatFx(area, kind, text, n){
   const E = seatEls[area]; if(!E) return;
-  const dur = kind === 'ordago' ? 2000 : kind === 'corte' ? 1500 : 1400;
+  const dur = kind === 'ordago' ? 2000 : kind === 'corte' ? 1500 : kind === 'discard' ? 1600 : 1400;
   const box = el('div', 'sfx' + (kind === 'ordago' ? ' ord' : kind === 'corte' ? ' cut' : ''));
   box.style.setProperty('--dur', dur + 'ms');
   if(kind === 'ordago') box.innerHTML = '<div class="rg"></div><div class="rg b"></div><span class="ot">Órdago</span>';
@@ -1082,11 +1117,15 @@ function tableFx(kind, text, sub){
   setTimeout(() => { if(f.parentNode) f.remove(); }, dur);
 }
 function animate(evs){
-  const chatted = new Set(evs.filter(e => e.kind === 'chat' && e.seat != null).map(e => e.seat));
+  const chatBySeat = {};
+  evs.forEach(ev => {
+    if(ev.kind === 'chat' && ev.seat != null) chatBySeat[ev.seat] = chatText(ev.text);
+  });
   let prevOrdago = !!(prevSnap && prevSnap.ordago);
   evs.forEach(ev => {
     const seat = ev.seat, area = seat != null && S.seats[seat] ? areaOf(seat) : null;
-    if(ev.kind === 'chat' && area){ speak(area, chatText(ev.text)); return; }
+    if(ev.kind === 'hand_start'){ clearCalls(); return; }
+    if(ev.kind === 'chat' && area){ speak(area, chatBySeat[seat] || chatText(ev.text)); return; }
     if(ev.kind === 'sena' && area){ if(ev.gesture) speak(area, ev.gesture.replace(/-/g, ' '), 'gest'); else if(area !== 'me') speak(area, 'hace un gesto', 'gest'); return; }
     if(ev.kind === 'vaca'){
       const va = S.scores.vacas_a, vb = S.scores.vacas_b;
@@ -1102,14 +1141,20 @@ function animate(evs){
       else if(a === 'y-yo') seatFx(area, 'envite', 'Y yo · ' + ((S.envite && S.envite.current) || ''), 2);
       else if(a === 'reenvido'){ const c = (S.envite && S.envite.current) || 4; seatFx(area, 'envite', 'Reenvido · ' + c, Math.min(c, 40)); }
       else if(a === 'quiero' && prevOrdago){ tableFx('ordago', 'Quiero', 'órdago aceptado · se enseñan las cartas'); }
-      if(!chatted.has(seat)){
-        let line = SAY[a] || '';
-        if(ev.kind === 'declare' && S.lance) line = (a === 'tengo' ? 'tengo ' : 'no tengo ') + S.lance.toLowerCase();
-        if(line && !(a === 'no' && ev.kind === 'mus')) speak(area, line);
+      const line = decisionLine(ev);
+      if(line){
+        setCall(area, line, true);
+        // Spoken words if they chatted; otherwise speak the decision itself.
+        if(chatBySeat[seat]) speak(area, chatBySeat[seat]);
+        else if(!(a === 'no' && ev.kind === 'mus')) speak(area, line);
       }
     } else if(ev.kind === 'discard'){
-      const n = (ev.cards || []).length || (String(ev.text).match(/(\d+)/) || [])[1] || '';
-      if(!chatted.has(seat)) speak(area, area === 'me' ? 'descarto ' + n : 'me echo ' + n);
+      const n = Number(ev.n != null ? ev.n : ((ev.cards || []).length || 0));
+      const line = decisionLine(ev);
+      setCall(area, line, true);
+      seatFx(area, 'discard', line, n || 0);
+      if(chatBySeat[seat]) speak(area, chatBySeat[seat]);
+      else speak(area, line);
     }
   });
 }

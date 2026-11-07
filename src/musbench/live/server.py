@@ -280,9 +280,11 @@ class LiveGame:
                         seat=seat, action=name)
         elif name == "discard":
             cards = action.get("cards") or []
+            n = len(cards)
             self._event("discard",
-                        f"{agent.name} descarta {len(cards)} carta(s) al mus",
-                        seat=seat, cards=[str(c) for c in cards])
+                        f"{agent.name} descarta {n} carta{'s' if n != 1 else ''} al mus",
+                        seat=seat, action="discard", n=n,
+                        cards=[str(c) for c in cards])
         seen = getattr(self, "_seen_jugadas", 0)
         new = eng.jugadas[seen:]
         self._seen_jugadas = len(eng.jugadas)
