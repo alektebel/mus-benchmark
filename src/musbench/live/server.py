@@ -56,7 +56,7 @@ from musbench.live.ui import INDEX_HTML
 HAND_PAUSE = 0.0
 
 MAX_REJECT_RETRIES = int(os.environ.get("MAX_REJECT_RETRIES", "4"))
-HUMAN_TURN_TIMEOUT = float(os.environ.get("HUMAN_TURN_TIMEOUT", "300"))
+HUMAN_TURN_TIMEOUT = float(os.environ.get("HUMAN_TURN_TIMEOUT", "45"))
 RESULTS_DIR = os.environ.get("MUS_RESULTS_DIR", "results")
 CARDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "..", "..", "..", "assets", "cards")
