@@ -215,6 +215,25 @@ class TestTableFeedForUI(unittest.TestCase):
         snap = g.snapshot(seat0.token)
         self.assertEqual(snap["you"]["legal"], [])
 
+    def test_model_declare_is_instant_no_thinking(self):
+        # Offline stand-in for an LLM seat: DECLARE must not arm the turn clock.
+        g = LiveGame(["human", "heuristic", "heuristic", "heuristic"],
+                     hands=1, seed=17)
+        g.engine.deal()
+        g.engine.phase = Phase.DECLARE
+        g.engine.lance_index = 2
+        g.engine.declared = {}
+        g.engine.current_seat = 1
+        agent = g.agents[1]
+        hand = list(g.engine.hands[1])
+        has = g.engine._pares_value(hand)[0] > 0
+        self.assertTrue(g._try_auto_declare(agent, hand))
+        self.assertEqual(g.engine.declared.get(1), has)
+        self.assertIsNone(g.thinking_seat)
+        self.assertIsNone(g.turn_seat)
+        self.assertTrue(any(e["kind"] == "declare" and e["seat"] == 1
+                            for e in g.events))
+
     def test_turn_clock_exposed_while_human_decides(self):
         g = LiveGame(["human", "heuristic", "heuristic", "heuristic"],
                      hands=1, seed=9)

@@ -347,19 +347,20 @@ class LiveGame:
         self._narrate(agent, action)
         return action
 
+    def _try_auto_declare(self, agent, hand) -> bool:
+        """Pares/Juego are facts of the hand: confirm instantly, never think."""
+        if self.engine.phase != Phase.DECLARE:
+            return False
+        action = _default_legal(self.engine, agent.seat)
+        self.engine.apply(agent.seat, action)
+        self._emit(agent, action, hand)
+        self._narrate(agent, action)
+        return True
+
     def _human_turn(self, agent: HumanSeat, hand) -> None:
         seat = agent.seat
-        # Pares/Juego declarations are forced by the hand — never ask the
-        # human to click tengo/no-tengo. The engine rejects false ones.
-        if self.engine.phase == Phase.DECLARE:
-            action = _default_legal(self.engine, seat)
-            try:
-                self.engine.apply(seat, action)
-                self._emit(agent, action, hand)
-                self._narrate(agent, action)
-                return
-            except IllegalAction as e:  # noqa: BLE001 — fall through to UI
-                self.human_error[seat] = str(e)
+        if self._try_auto_declare(agent, hand):
+            return
         legal = self.engine.legal_actions(seat)
         error = self.human_error.pop(seat, None)
         self.pending_human = {"seat": seat, "legal": legal, "error": error}
@@ -549,7 +550,12 @@ class LiveGame:
                             seat=seat, to_seat=ev.from_seat, gesture=ev.gesture,
                             meaning=SENAS.get(ev.gesture, ("?",))[0])
         hand = list(engine.hands[seat])
-        if agent.is_llm:
+        # tengo/no-tengo is forced by the cards — skip LLM "pensando" and the
+        # human click. Baselines already pick the truthful declare; route them
+        # through the same instant path so narration stays consistent.
+        if self._try_auto_declare(agent, hand):
+            pass
+        elif agent.is_llm:
             self.stats["llm_turns"] += 1
             self.thinking_seat = seat
             llm_timeout = float(os.environ.get("NAN_TIMEOUT", "180"))
