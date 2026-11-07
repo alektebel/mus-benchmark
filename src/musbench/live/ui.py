@@ -141,8 +141,20 @@ nav.views a:hover{color:var(--color-accent-200)}
 .seat[data-area=right]{grid-area:right;flex-direction:row-reverse;justify-self:start;padding-left:clamp(0px,1vw,13px)}
 .seat .meta{display:flex;flex-direction:column;align-items:center;gap:var(--space-2);min-width:0}
 .seat[data-area=top] .meta{order:0}
-.seat[data-area=top] .hand{order:1}
+.seat[data-area=top] .handrow{order:1}
 .who{display:flex;align-items:center;gap:var(--space-2)}
+.handrow{display:flex;align-items:center;gap:clamp(8px,1.1vw,13px);flex:0 0 auto;min-width:0}
+.deckmark{position:relative;flex:0 0 auto;width:calc(var(--rival-w, 55px) * .82);height:calc(var(--rival-w, 55px) * .82 * var(--card-ratio, 1.618));
+  opacity:0;pointer-events:none;transition:opacity .3s;filter:drop-shadow(0 4px 10px rgba(0,0,0,.45))}
+.seat.is-mano .deckmark,.me.is-mano .deckmark{opacity:1}
+.deckmark span{position:absolute;inset:0;border-radius:calc(var(--radius-md) - 1px);background:linear-gradient(150deg,#2b2741,#423a6a 60%,#2b2741);
+  border:1px solid rgba(210,206,253,.35);box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.deckmark span::before{content:"";position:absolute;inset:0;opacity:.5;border-radius:inherit;background:repeating-linear-gradient(45deg,rgba(181,171,252,.16) 0 2px,transparent 2px 7px)}
+.deckmark span::after{content:"";position:absolute;inset:3px;border:1px solid rgba(210,206,253,.35);border-radius:calc(var(--radius-md) - 3px)}
+.deckmark span:nth-child(1){transform:translate(0,2px)}
+.deckmark span:nth-child(2){transform:translate(3px,0)}
+.deckmark span:nth-child(3){transform:translate(6px,-2px)}
+.deckmark .cap{position:absolute;left:50%;bottom:-14px;transform:translateX(-50%);font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--color-accent-200);white-space:nowrap}
 .avatar{position:relative;width:34px;height:34px;flex:0 0 auto;border-radius:50%;border:1px solid var(--color-neutral-800);
   display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-size:12px;transition:box-shadow .3s,border-color .3s;background:#000}
 .avatar.has-icon{border-color:color-mix(in srgb, var(--color-neutral-500) 55%, transparent)}
@@ -429,7 +441,10 @@ footer.foot a{color:var(--color-neutral-400)}
               <div class="avatar" id="myavatar"><span>·</span></div>
               <div class="nm"><span class="name" id="myname"></span><span class="role" id="myrole"></span></div>
             </div>
-            <div class="myhand" id="myhand"><div class="fxlayer" id="myfx"></div></div>
+            <div class="handrow">
+              <div class="myhand" id="myhand"><div class="fxlayer" id="myfx"></div></div>
+              <div class="deckmark" id="mydeck" title="Mano" aria-hidden="true"><span></span><span></span><span></span><i class="cap">mano</i></div>
+            </div>
           </div>
           <div class="voice">
             <div class="say" id="mysay"></div>
@@ -722,14 +737,16 @@ const seatEls = {};
 ['left','top','right'].forEach(a => {
   const root = $('seat-' + a);
   root.innerHTML = '<div class="meta"><div class="who"><div class="avatar"></div><div class="nm"><span class="name"></span><span class="role"></span></div></div>' +
-    '<div class="voice"><div class="say"></div><div class="call" aria-live="polite"></div></div></div><div class="hand"><div class="fxlayer"></div></div>';
+    '<div class="voice"><div class="say"></div><div class="call" aria-live="polite"></div></div></div>' +
+    '<div class="handrow"><div class="hand"><div class="fxlayer"></div></div>' +
+    '<div class="deckmark" title="Mano" aria-hidden="true"><span></span><span></span><span></span><i class="cap">mano</i></div></div>';
   seatEls[a] = {root, avatar:root.querySelector('.avatar'), name:root.querySelector('.name'), role:root.querySelector('.role'),
     hand:root.querySelector('.hand'), fx:root.querySelector('.fxlayer'), say:root.querySelector('.say'),
-    call:root.querySelector('.call'), sig:null, speech:null};
+    call:root.querySelector('.call'), deck:root.querySelector('.deckmark'), sig:null, speech:null};
   ensureTimer(seatEls[a].avatar);
 });
 seatEls.me = {root:$('you'), avatar:$('myavatar'), name:$('myname'), role:$('myrole'),
-  hand:$('myhand'), fx:$('myfx'), say:$('mysay'), call:$('mycall'), sig:null, speech:null};
+  hand:$('myhand'), fx:$('myfx'), say:$('mysay'), call:$('mycall'), deck:$('mydeck'), sig:null, speech:null};
 ensureTimer(seatEls.me.avatar);
 
 let selected = new Set();
@@ -782,6 +799,7 @@ function renderSeat(area){
       E.hand.style.opacity = .35; }
     E.root.classList.remove('thinking', 'is-mano'); setTimer(E.avatar, null);
     E.avatar.style.boxShadow = 'none';
+    if(E.deck) E.deck.setAttribute('aria-hidden', 'true');
     return;
   }
   E.hand.style.opacity = '';
@@ -791,6 +809,7 @@ function renderSeat(area){
   const offline = seatOffline(seat);
   E.root.classList.toggle('thinking', !!s.thinking);
   E.root.classList.toggle('is-mano', isMano);
+  if(E.deck) E.deck.setAttribute('aria-hidden', isMano ? 'false' : 'true');
   E.avatar.style.boxShadow = s.thinking ? '0 0 0 3px color-mix(in srgb, ' + f.color + ' 22%, transparent), 0 0 16px ' + f.color : 'none';
   const head = name + '|' + key + '|' + (f.icon ? '1' : '0') + '|' + (offline ? 'off' : 'on');
   if(E.head !== head){ E.head = head;
@@ -854,6 +873,8 @@ function renderMe(){
   const meKey = S && S.seats[mySeat()] ? modelKey(mySeat()) : 'human';
   const f = family(meKey);
   const isMano = !!(S && S.mano === mySeat());
+  E.root.classList.toggle('is-mano', isMano);
+  if(E.deck) E.deck.setAttribute('aria-hidden', isMano ? 'false' : 'true');
   const head = meName + '|' + (f.icon ? '1' : '0') + '|' + isMano;
   if(E.head !== head){ E.head = head;
     paintAvatar(E.avatar, meName, f.icon ? f : {color:'var(--color-accent-200)', icon:'', mono:false, lab:''});
@@ -1202,6 +1223,8 @@ function render(){
 }
 function renderMeEmpty(){
   const E = seatEls.me;
+  E.root.classList.remove('is-mano');
+  if(E.deck) E.deck.setAttribute('aria-hidden', 'true');
   paintAvatar(E.avatar, NICK || 'tú', {color:'var(--color-neutral-500)', icon:'', mono:false, lab:''});
   if(E.name){ E.name.textContent = NICK || 'tú'; E.name.style.color = 'var(--color-neutral-500)'; }
   if(E.role) E.role.textContent = 'por sentarse';
