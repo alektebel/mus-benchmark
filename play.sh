@@ -28,4 +28,4 @@ HANDS="${HANDS:-12}"
 SEATS="${SEATS:-human,glm5.3-flash,deepseek-v4-flash,qwen3.8-flash}"
 
 echo "mus en vivo on port ${PORT} — seats: ${SEATS}"
-exec python3 live_server.py --port "${PORT}" --seats "${SEATS}" --hands "${HANDS}"
+exec python3 src/musbench/live/server.py --port "${PORT}" --seats "${SEATS}" --hands "${HANDS}"

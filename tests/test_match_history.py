@@ -1,10 +1,10 @@
 import unittest
 from random import Random
 
-from match_history import MatchHistory
-from mus_engine import MusEngine, Phase
-from decision_log import DecisionLog
-from virtual_kernel import run_match_kernel
+from musbench.agents.memory import MatchHistory
+from musbench.mus.engine import MusEngine, Phase
+from musbench.observe.decision_log import DecisionLog
+from musbench.harness.kernel import run_match_kernel
 
 
 class DossierTest(unittest.TestCase):

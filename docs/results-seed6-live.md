@@ -101,7 +101,7 @@ because **they are not bluffs — they are rule errors, and the metric conflates
 
 Both came from B1 in hand 13, signalling `saca-la-punta-de-la-lengua` ("dos ases") while
 holding `as de copas, as de oros, dos de bastos, siete de copas`. Under mus rank
-equivalence a `dos` counts as an `as` (`senas.py:_count`), so that hand holds *three*
+equivalence a `dos` counts as an `as` (`src/musbench/mus/senas.py:_count`), so that hand holds *three*
 aces and the correct gesture was `saca-la-lengua-hacia-un-lado`. The engine scored the
 gesture false. But B1's private thought is sincere:
 
@@ -197,8 +197,8 @@ fold, and state the timeout in the first paragraph. What it cannot carry is a le
 - **Fix the call asymmetry first** — 2× calls and 49 API errors on one side is a
   confound, not a fact about mus skill.
 - **Both seatings × many seeds**, reported with an interval. The mirror harness
-  (`run_tournament.py`) already does this; it needs volume.
-- **Baseline anchors.** `baselines_strict.py` gives a floor; no LLM number means much
+  (`src/musbench/harness/tournament.py`) already does this; it needs volume.
+- **Baseline anchors.** `src/musbench/agents/baselines.py` gives a floor; no LLM number means much
   without it.
 
 ---

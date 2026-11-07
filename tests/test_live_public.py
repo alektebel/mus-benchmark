@@ -8,7 +8,7 @@ import tempfile
 import time
 import unittest
 
-import live_public
+import musbench.live.public as live_public
 
 
 class FakeGame:

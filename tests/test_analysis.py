@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from random import Random
 
-import analysis
-from decision_log import DecisionLog
-from mus_engine import MusEngine
-from virtual_kernel import run_match_kernel
+import musbench.analysis.scorecards as analysis
+from musbench.observe.decision_log import DecisionLog
+from musbench.mus.engine import MusEngine
+from musbench.harness.kernel import run_match_kernel
 
 
 def dec(hand, seat, team, action, *, lance="Grande", strength=0.5,

@@ -2,11 +2,12 @@ import unittest
 from random import Random
 from unittest.mock import Mock, patch
 
-from deck import Card
-from groupchat import Channels, public_cost
-from mus_engine import MusEngine, Phase
-import run_match_strict as harness
-import agents
+from musbench.mus.deck import Card
+from musbench.agents.groupchat import Channels, public_cost
+from musbench.mus.engine import MusEngine, Phase
+import musbench.live.apifail as apifail
+import musbench.harness.strict as harness
+import musbench.agents.core as agents
 
 
 class StrictHarnessTests(unittest.TestCase):
@@ -30,8 +31,8 @@ class StrictHarnessTests(unittest.TestCase):
         self.assertEqual(self.agent.redactions, 1)
 
     def test_false_gesture_is_broadcast_as_bluff_when_allowed(self):
-        import match as matchmod
-        from senas import sena_truthful
+        import musbench.harness.match as matchmod
+        from musbench.mus.senas import sena_truthful
         hand = [Card('rey', 'oros'), Card('cuatro', 'copas'),
                 Card('cinco', 'bastos'), Card('seis', 'espadas')]
         self.assertFalse(sena_truthful('muerde-el-labio-inferior', hand, self.engine))
@@ -43,8 +44,8 @@ class StrictHarnessTests(unittest.TestCase):
         self.assertEqual(self.agent.invalid_signals, 0)
 
     def test_false_gesture_is_dropped_when_bluffs_disabled(self):
-        import match as matchmod
-        from senas import sena_truthful
+        import musbench.harness.match as matchmod
+        from musbench.mus.senas import sena_truthful
         hand = [Card('rey', 'oros'), Card('cuatro', 'copas'),
                 Card('cinco', 'bastos'), Card('seis', 'espadas')]
         self.assertFalse(sena_truthful('muerde-el-labio-inferior', hand, self.engine))
@@ -145,7 +146,7 @@ class StrictHarnessTests(unittest.TestCase):
         response = {'choices': [{'message': {'content': '{"action":"no"}'},
                                  'finish_reason': 'stop'}],
                     'usage': {'prompt_tokens': 12, 'completion_tokens': 5}}
-        with patch.object(harness.apifail, 'call_with_retries',
+        with patch.object(apifail, 'call_with_retries',
                           side_effect=[{'choices': []}, response]) as call:
             self.assertEqual(agent.decide('offline'), {'action': 'no'})
         self.assertEqual(call.call_count, 2)
@@ -158,7 +159,7 @@ class StrictHarnessTests(unittest.TestCase):
                                  'finish_reason': 'stop'}],
                     'usage': {'prompt_tokens': None, 'completion_tokens': None,
                               'completion_tokens_details': {'reasoning_tokens': None}}}
-        with patch.object(harness.apifail, 'call_with_retries', return_value=response):
+        with patch.object(apifail, 'call_with_retries', return_value=response):
             self.assertEqual(agent.decide('offline'), {'action': 'no'})
         self.assertEqual((agent.tokens_in, agent.tokens_out, agent.reasoning), (0, 0, 0))
 

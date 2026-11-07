@@ -2,7 +2,7 @@
 """Render mus_bench LLM results to a static HTML page for alektebel.github.io.
 
 Reads one or more run directories (each with a summary.json produced by
-run_tournament.py) and writes a self-contained page in the site's Nocturne-ish
+src/musbench/harness/tournament.py) and writes a self-contained page in the site's Nocturne-ish
 style. Used by the publish watcher that fires when a tournament finishes.
 """
 from __future__ import annotations

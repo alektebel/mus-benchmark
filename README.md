@@ -5,7 +5,7 @@ Team A occupies seats 0 and 2; Team B occupies seats 1 and 3.
 
 ## Current pipeline
 
-`mus_engine.py` is the strict, turn-gated engine. `run_match_strict.py` runs
+`src/musbench/mus/engine.py` is the strict, turn-gated engine. `src/musbench/harness/strict.py` runs
 LLM or offline policy seats against it. A **vaca means reaching 40 points**;
 both point counters then reset. Grande, Chica, Pares and Juego have separate
 betting rounds. The engine validates declarations, discards and turn order.
@@ -39,8 +39,8 @@ Python 3.10+ and `requests` are required. No API key is needed for these command
 
 ```bash
 python -m unittest discover -s tests -v
-python run_match_strict.py --models heuristic,random,heuristic,random --hands 100 --seed 7
-PROGRESS_FILE=/tmp/mus-progress.json python run_benchmark_strict.py \
+python -m musbench.harness.strict --models heuristic,random,heuristic,random --hands 100 --seed 7
+PROGRESS_FILE=/tmp/mus-progress.json python -m musbench.harness.bench_strict \
   --models heuristic,random,heuristic,random --hands 100 --seeds 0,1,2 \
   --workers 2 --out /tmp/mus-results.json
 ```
@@ -48,6 +48,18 @@ PROGRESS_FILE=/tmp/mus-progress.json python run_benchmark_strict.py \
 The CLI seeds both the deck and random policies. Python callers supply the
 engine RNG explicitly: `MusEngine(rng=Random(seed))`; the harness's `seed`
 argument seeds the policies and preserves the supplied engine RNG.
+
+## Jev seña policies (optional)
+
+With `JEV_TOKEN` set and `SENA_POLICY_SOURCE=jev`, each LLM seat's seña policy
+is re-derived every hand by the Jev System One model
+(`api.typesafe.ai/v1/systemone`): one `choice` question over the 9-gesture
+vocabulary per phase/lance context plus a `score` for the firing offset. The
+engine's `sena_truthful` check stays the ground truth — Jev proposes, the
+engine disposes, and false gestures are dropped exactly as with declared
+policies. On any API failure the seat keeps its previous policy (or the
+offline reference floor) and the match continues. Default remains
+`SENA_POLICY_SOURCE=declare` (seats declare policies in-band).
 
 ## LLM runs
 
@@ -58,17 +70,17 @@ Use a model available through your configured provider. LLM runs consume API
 credits; the regression tests use mocks and do not make network calls.
 
 ```bash
-python run_match_strict.py --models "$MODEL,heuristic,$MODEL,heuristic" --hands 12 --seed 7
-python run_llm_vs_baseline.py --models "$MODEL" --hands 12 --seeds 0,1,2 --workers 1
-python dashboard.py --file progress.json --port 8000
+python -m musbench.harness.strict --models "$MODEL,heuristic,$MODEL,heuristic" --hands 12 --seed 7
+python tools/run_llm_vs_baseline.py --models "$MODEL" --hands 12 --seeds 0,1,2 --workers 1
+python tools/dashboard.py --file progress.json --port 8000
 ```
 
 See [RUN.md](RUN.md) for configuration and diagnostic commands.
 
 ## Experimental kernel harness (real-time señas)
 
-`run_match_kernel.py` runs the same turn-gated engine through a
-**virtual-time kernel** (`virtual_kernel.py`) that models how señas actually
+`src/musbench/harness/kernel_match.py` runs the same turn-gated engine through a
+**virtual-time kernel** (`src/musbench/harness/kernel.py`) that models how señas actually
 work in mus: a player gestures *while the partner is deliberating*, not on
 their own turn, and a gesture nobody catches before it fades is simply
 missed.
@@ -82,11 +94,11 @@ missed.
     failure is recorded (`api_errors`), and the existing fallback-rate guard
     (`MAX_FALLBACK_RATE`) still aborts matches that degrade into noise.
   * Señas travel on a **partner-directed, TTL-expiring bus**
-    (`signal_bus.py`). Delivery is batched: gestures made mid-window reach
+    (`src/musbench/observe/signal_bus.py`). Delivery is batched: gestures made mid-window reach
     the addressee's *next* decision unless they expire first. Preemptive
     delivery (interrupting the in-flight decision) is the planned phase-2
     mode; the timestamps it needs already exist.
-  * Each seat owns a **declarative signal policy** (`signal_manager.py`):
+  * Each seat owns a **declarative signal policy** (`src/musbench/observe/signal_manager.py`):
     JSON rules — gesture, phase/lance, offset, ttl, optional `bluff` — that
     the kernel interprets; seats never ship executable code. LLM seats start
     silent and must declare a `signal_policy` in their action; baseline seats
@@ -97,29 +109,29 @@ missed.
     a replacement — the strict harness remains the reference pipeline.
 
 ```bash
-python run_match_kernel.py --models heuristic,random,heuristic,random --hands 12 --seed 7
+python -m musbench.harness.kernel_match --models heuristic,random,heuristic,random --hands 12 --seed 7
 ```
 
-## Scoring reads and risk (`decision_log.py` + `analysis.py`)
+## Scoring reads and risk (`src/musbench/observe/decision_log.py` + `src/musbench/analysis/scorecards.py`)
 
 A 10-hand match costs ~75 minutes and yields **one noisy bit** — a vaca count.
 With the README's own floor (heuristic ≈ 0.55 vs random) that signal can never
 reach significance at an affordable sample size. So the unit of measurement is
 the **decision**, not the match.
 
-`decision_log.py` writes one JSONL record per decision, flushed as it goes,
+`src/musbench/observe/decision_log.py` writes one JSONL record per decision, flushed as it goes,
 carrying the engine's ground truth: all four hands, the lance winner under
 those hands, the live stake, and the score. `MusEngine._lance_winner` is a pure
 function of the four hands and is constant for a whole lance once the draw is
 over, so the harness always knows what a fold gave away or whether an envite
 was backed by anything.
 
-`analysis.py` turns that into a scorecard:
+`src/musbench/analysis/scorecards.py` turns that into a scorecard:
 
 ```bash
-python run_match_kernel.py --models heuristic,random,heuristic,random \
+python -m musbench.harness.kernel_match --models heuristic,random,heuristic,random \
     --hands 40 --seed 3 --out /tmp/m.json      # also writes /tmp/m.jsonl
-python analysis.py /tmp/m.jsonl
+python -m musbench.analysis.scorecards /tmp/m.jsonl
 ```
 
 **Risk.** A bluff is an envite from a hand the bettor could see was weak —
@@ -155,7 +167,7 @@ Three things had to enter the prompt before any of this was measurable:
     the vaca;
   * **the betting chain** — only the collapsed `EnviteState` snapshot was
     shown, hiding who pushed and who backed down;
-  * **rival history** (`match_history.py`) — `reset_hand` clears the chat and
+  * **rival history** (`src/musbench/agents/memory.py`) — `reset_hand` clears the chat and
     the seña bus every hand, so each decision was made against a table with no
     past. The dossier carries public actions plus cards from lances that
     actually reached a showdown (an accepted envite), which is exactly when mus
@@ -167,7 +179,7 @@ Three things had to enter the prompt before any of this was measurable:
 `metrics.bluffs` in older summaries counted gestures false of the sender's own
 cards — and the kernel bus addresses every gesture to the sender's **partner**.
 That is deceiving your teammate, not a betting bluff, and it is now reported as
-`false_senas_to_partner`. Betting bluffs live only in `analysis.py`.
+`false_senas_to_partner`. Betting bluffs live only in `src/musbench/analysis/scorecards.py`.
 
 ## Turn feed and vaca memory
 
@@ -213,7 +225,7 @@ every note is logged verbatim in `vaca_notes` on the result.
 ## Mock runs (no API spend)
 
 ```bash
-python run_mock_match.py --teams glm5.3-flash deepseek-v4-flash \
+python tools/run_mock_match.py --teams glm5.3-flash deepseek-v4-flash \
     --hands 30 --seed 6 --turn-feed --memory notes --out results/mock
 ```
 
@@ -229,7 +241,7 @@ decision), `io.jsonl` (**every prompt and every raw completion, in order**),
 
 ## Reference policies
 
-`baselines_strict.py` carries three, all free to run (no API):
+`src/musbench/agents/baselines.py` carries three, all free to run (no API):
 
 | spec | behaviour |
 |---|---|
@@ -244,7 +256,7 @@ bluffing: nothing to catch, no fold decision worth reading. Its bluff rate is
 one.
 
 ```bash
-python reference_card.py --hands 300
+python -m musbench.mus.reference_card --hands 300
 ```
 
 ```
@@ -281,7 +293,7 @@ It replaces two bugs in the previous ad-hoc sums:
 
   * **Chica was inverted.** `1.0 - sum(RANK_CHICA)/44` scored a great Chica
     hand as weak -- `RANK_CHICA` already encodes higher = better (as=11,
-    caballo=1). The heuristic bet Chica backwards, and `analysis.py` classified
+    caballo=1). The heuristic bet Chica backwards, and `src/musbench/analysis/scorecards.py` classified
     every Chica bluff upside down.
   * **The lances were not comparable.** Raw Grande averaged ~0.67 and raw Chica
     ~0.62, so one global threshold meant a different thing in each lance.
@@ -305,7 +317,7 @@ orientations cancels it by construction and cut the standard deviation from
 
 ## Paired deals
 
-`run_tournament.py --mirror` plays every pairing on every seed, so the two
+`src/musbench/harness/tournament.py --mirror` plays every pairing on every seed, so the two
 orientations of a matchup meet the same cards and can be compared hand for
 hand; `summary.json` gains a `paired` block with the within-pair difference.
 Without the flag seeds are *zipped* to pairings, so the two orientations play
@@ -323,17 +335,17 @@ hands actually produced.
 
 ## Live table and results web app
 
-`live_server.py` + `live_ui.py` serve a browser table where human seats play
+`src/musbench/live/server.py` + `src/musbench/live/ui.py` serve a browser table where human seats play
 against LLM seats on the same engine and kernel sena bus (private,
 partner-directed, TTL-expiring gestures). The UI's Bench tab shows the
 aggregate of every result file under `results/` (tournament summaries and
 strict batch outputs): a vacas leaderboard plus per-match rows with señas,
 bluffs, fallbacks and timings. `GET /api/results` returns the same data as
-JSON (`bench_results.py` is the pure aggregation layer).
+JSON (`src/musbench/analysis/results.py` is the pure aggregation layer).
 
 ```bash
-python run_tournament.py --hands 10 --workers 1 --out results/tournament
-python live_server.py --port 8123 --seats human,glm5.3-flash,deepseek-v4-flash,heuristic
+python -m musbench.harness.tournament --hands 10 --workers 1 --out results/tournament
+python -m musbench.live.server --port 8123 --seats human,glm5.3-flash,deepseek-v4-flash,heuristic
 ```
 
 Three guards now make `--workers > 1` safe, which is what the 429 cascade in

@@ -6,11 +6,11 @@ import threading
 import time
 import unittest
 
-import live_server
-from live_server import LiveGame, HumanSeat
-from mus_engine import Phase
-import senas as senas_mod
-from senas import sena_truthful
+import musbench.live.server as live_server
+from musbench.live.server import LiveGame, HumanSeat
+from musbench.mus.engine import Phase
+import musbench.mus.senas as senas_mod
+from musbench.mus.senas import sena_truthful
 
 
 def make_game(seats=("human", "heuristic", "human", "heuristic"),
@@ -180,6 +180,50 @@ class TestHumanFlow(unittest.TestCase):
         ok, err = g.submit_human_action(0, {"action": "mus"})
         self.assertFalse(ok)
         self.assertIn("not this seat's turn", err)
+
+
+class TestTableFeedForUI(unittest.TestCase):
+    """The page animates from the feed: actions must be tagged, and a seat's
+    buttons must disappear as soon as its turn is over."""
+
+    def test_pending_cleared_after_human_acts(self):
+        g = LiveGame(["human", "heuristic", "heuristic", "heuristic"],
+                     hands=1, seed=7)
+        g.engine.deal()
+        seat0 = g.human_agents[0]
+        seat0.inbox.put({"action": "__default__"})
+        g._human_turn(seat0, list(g.engine.hands[0]))
+        self.assertIsNone(g.pending_human)
+        self.assertEqual(g.snapshot(seat0.token)["you"]["legal"], [])
+        ok, err = g.submit_human_action(0, {"action": "mus"})
+        self.assertFalse(ok)
+
+    def test_mus_and_envite_events_carry_action(self):
+        g = run_scripted(make_game(hands=2, seed=5))
+        mus = [e for e in g.events if e["kind"] == "mus"]
+        self.assertTrue(mus, "every hand opens with a mus decision")
+        self.assertTrue(all(e["action"] in ("mus", "no") for e in mus))
+        env = [e for e in g.events if e["kind"] in ("envite", "declare")]
+        self.assertTrue(env)
+        self.assertTrue(all(e.get("action") for e in env))
+
+    def test_hand_pause_is_off_by_default_and_interruptible(self):
+        self.assertEqual(live_server.HAND_PAUSE, 0.0)
+        old = live_server.HAND_PAUSE
+        live_server.HAND_PAUSE = 30.0
+        try:
+            g = make_game(hands=3, seed=5)
+            t = threading.Thread(target=run_scripted, args=(g,), daemon=True)
+            t.start()
+            deadline = time.time() + 10
+            while g.hands_played < 1 or g.engine.phase != Phase.DONE:
+                self.assertLess(time.time(), deadline)
+                time.sleep(0.02)
+            g.stop()
+            t.join(timeout=5)
+            self.assertFalse(t.is_alive(), "stop() must cut the pause short")
+        finally:
+            live_server.HAND_PAUSE = old
 
 
 if __name__ == "__main__":

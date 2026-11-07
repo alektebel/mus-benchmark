@@ -3,14 +3,14 @@
 The goal: **`alektebel.github.io/mus/play/` where anyone can sit down against
 the models.**
 
-GitHub Pages serves static files only, and `live_server.py` is a stateful
+GitHub Pages serves static files only, and `src/musbench/live/server.py` is a stateful
 Python process (each game holds an engine, four seats, a signal bus and a
 kernel thread in memory). So the split is:
 
 ```
 alektebel.github.io/mus/play/      <- static page (publish/pages/)  ── HTTPS ──┐
                                                                               │
-52.31.169.175.sslip.io             <- live_server.py --public   <─────────────┘
+52.31.169.175.sslip.io             <- src/musbench/live/server.py --public   <─────────────┘
    EC2 t4g.nano (eu-west-1) + Caddy TLS (Let's Encrypt via sslip.io)
 ```
 
@@ -40,8 +40,8 @@ changes). Update the app with `sudo -u mus git -C /opt/mus/app pull` +
 
 ## 1. What `--public` changes
 
-`live_server.py` was written for one person on one laptop. `--public` adds the
-three things that were missing, via `live_public.py`:
+`src/musbench/live/server.py` was written for one person on one laptop. `--public` adds the
+three things that were missing, via `src/musbench/live/public.py`:
 
 | Problem on the open internet | What `--public` does |
 |---|---|
@@ -101,28 +101,28 @@ Elastic IP and sslip.io name survive the type change.
 
 ## 3. Publish the page
 
-```bash
-mkdir -p /path/to/alektebel.github.io/mus/play
-cp publish/pages/index.html /path/to/alektebel.github.io/mus/play/
-```
-
-The generated page calls the API with RELATIVE paths (it is built to be
-served by the backend itself). For the static GitHub Pages deploy, rewrite
-them to the backend origin before copying:
+The table lives at **`diegoatencia.dev/mus/`** and opens straight onto the
+mesa; Reglamento and Clasificación are views of the same page (`#reglamento`,
+`#clasificacion`). Build it into the Pages checkout:
 
 ```bash
-sed -i "s|fetch('/api/|fetch('https://52.31.169.175.sslip.io/api/|g;
-        s|new EventSource('/events|new EventSource('https://52.31.169.175.sslip.io/events|g;
-        s|fetch('/snapshot|fetch('https://52.31.169.175.sslip.io/snapshot|g" \
-  /path/to/alektebel.github.io/mus/play/index.html
+publish/build_static_play.sh                       # -> ~/Github/alektebel.github.io/mus/index.html
+MUS_BACKEND=https://<host>.sslip.io publish/build_static_play.sh /path/to/out.html
 ```
 
-and keep the matching origin on the backend (`--allow-origin
-https://alektebel.github.io`, already in the systemd unit).
+The page source (`src/musbench/live/ui.py`) declares its endpoints as two
+constants, `API` (empty = same origin) and `CARDS` (`/cards/`); the build
+rewrites them to the backend origin and to `/mus/cards/`. The model
+leaderboard reads `/mus/bench-v2-results.json` from the site.
 
-CORS is an allowlist — an origin that is not listed gets no
-`Access-Control-Allow-Origin` header at all, so keep those two in sync or the
-status badge will read "la mesa no responde".
+Keep the page origin on the backend's CORS allowlist (`--allow-origin
+https://diegoatencia.dev`, plus `https://alektebel.github.io` for the
+github.io alias). CORS is an allowlist — an origin that is not listed gets no
+`Access-Control-Allow-Origin` header at all, and the status reads
+"la mesa no responde".
+
+`MUS_HAND_PAUSE` (default 4.5 s) holds the next deal while a human is seated,
+so the end-of-hand reveal is visible on the table.
 
 ## 4. Spend controls
 
@@ -171,7 +171,7 @@ curl https://mus-table.fly.dev/api/status
 
 ```bash
 # public mode locally, offline seats, no credits spent
-python live_server.py --port 8132 --seats human,heuristic,heuristic,heuristic \
+python -m musbench.live.server --port 8132 --seats human,heuristic,heuristic,heuristic \
   --public --allow-origin http://127.0.0.1:8141
 
 python -m unittest tests.test_live_public -v

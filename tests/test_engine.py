@@ -5,9 +5,9 @@ import unittest
 from random import Random
 from unittest.mock import patch
 
-from baselines_strict import HeuristicPolicy, RandomPolicy
-from deck import Card, make_deck
-from mus_engine import IllegalAction, MusEngine, Phase
+from musbench.agents.baselines import HeuristicPolicy, RandomPolicy
+from musbench.mus.deck import Card, make_deck
+from musbench.mus.engine import IllegalAction, MusEngine, Phase
 
 
 def hand(*ranks):

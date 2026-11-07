@@ -4,13 +4,13 @@ import tempfile
 import unittest
 from random import Random
 
-import analysis
-from agents import _make_agent
-from baselines_strict import (EpsilonHeuristicPolicy, HeuristicPolicy,
+import musbench.analysis.scorecards as analysis
+from musbench.agents.core import _make_agent
+from musbench.agents.baselines import (EpsilonHeuristicPolicy, HeuristicPolicy,
                               RandomPolicy, parse_baseline)
-from decision_log import DecisionLog
-from mus_engine import MusEngine, Phase, JUEGO_TOTALS, LANCE_NAMES
-from virtual_kernel import run_match_kernel
+from musbench.observe.decision_log import DecisionLog
+from musbench.mus.engine import MusEngine, Phase, JUEGO_TOTALS, LANCE_NAMES
+from musbench.harness.kernel import run_match_kernel
 
 
 def play(models, seed, hands=120):
@@ -138,8 +138,8 @@ class ScorecardAgreementTest(unittest.TestCase):
         OPEN_BID silently means something different in each one."""
         import statistics
         from random import Random as R
-        from baselines_strict import _lance_strength
-        from deck import make_deck
+        from musbench.agents.baselines import _lance_strength
+        from musbench.mus.deck import make_deck
         engine = MusEngine(rng=R(0))
         rng = R(7)
         for lance in ("Grande", "Chica", "Pares", "Juego"):
@@ -157,8 +157,8 @@ class ScorecardAgreementTest(unittest.TestCase):
         higher = better, so the old `1.0 - sum/44` scored a great Chica hand
         as weak and every Chica bluff was classified upside down."""
         from random import Random as R
-        from baselines_strict import _lance_strength
-        from deck import Card
+        from musbench.agents.baselines import _lance_strength
+        from musbench.mus.deck import Card
         engine = MusEngine(rng=R(0))
         great = [Card(*c.split(" de ")) for c in
                  ("as de copas", "dos de oros", "tres de bastos",

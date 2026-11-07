@@ -13,8 +13,8 @@ REPO="$PWD"
 PAGES_DIR="${PAGES_DIR:-/tmp/opencode/pages_publish}"
 RESULTS_DIRS=(results/tournament_replication results/tournament_mirror)
 
-echo "[watch] $(date -u +%FT%TZ) waiting for run_tournament.py to finish"
-while pgrep -f "run_tournament.py" >/dev/null; do sleep 30; done
+echo "[watch] $(date -u +%FT%TZ) waiting for src/musbench/harness/tournament.py to finish"
+while pgrep -f "src/musbench/harness/tournament.py" >/dev/null; do sleep 30; done
 echo "[watch] tournament finished at $(date -u +%FT%TZ)"
 
 # --- refresh pages clone ---

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bench_results import aggregate_results, load_batch_results, \
+from musbench.analysis.results import aggregate_results, load_batch_results, \
     load_tournament_summary
 
 

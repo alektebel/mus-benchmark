@@ -4,7 +4,7 @@
 
 ```bash
 python -m unittest discover -s tests -v
-python run_match_strict.py --models heuristic,random,heuristic,random --hands 100 --seed 7
+python -m musbench.harness.strict --models heuristic,random,heuristic,random --hands 100 --seed 7
 ```
 
 The test suite covers strict and legacy rules, hidden-hand access, discard
@@ -44,13 +44,13 @@ interruptible wall-clock process kill. Choose provider-supported reasoning value
 permanent client errors abort rather than retrying an incompatible payload.
 
 ```bash
-python run_match_strict.py --models "$MODEL,heuristic,$MODEL,heuristic" --hands 12 --seed 7
-python run_match_strict.py --teams "$MODEL_A" "$MODEL_B" --hands 12 --seed 7
-python run_tournament.py --hands 40 --seeds 6,7 --mirror --workers 4 --out results/run
-python analysis.py results/run/*.jsonl          # the scorecard
-python run_llm_vs_baseline.py --models "$MODEL" --hands 12 --seeds 0,1,2 --workers 1 --out batch.json
-python run_benchmark_strict.py --models "$MODEL,heuristic,$MODEL,heuristic" --hands 12 --seeds 0,1,2 --workers 1
-python dashboard.py --port 8000 --file progress.json
+python -m musbench.harness.strict --models "$MODEL,heuristic,$MODEL,heuristic" --hands 12 --seed 7
+python -m musbench.harness.strict --teams "$MODEL_A" "$MODEL_B" --hands 12 --seed 7
+python -m musbench.harness.tournament --hands 40 --seeds 6,7 --mirror --workers 4 --out results/run
+python src/musbench/analysis/scorecards.py results/run/*.jsonl          # the scorecard
+python tools/run_llm_vs_baseline.py --models "$MODEL" --hands 12 --seeds 0,1,2 --workers 1 --out batch.json
+python -m musbench.harness.bench_strict --models "$MODEL,heuristic,$MODEL,heuristic" --hands 12 --seeds 0,1,2 --workers 1
+python tools/dashboard.py --port 8000 --file progress.json
 ```
 
 `--teams TEAM_A TEAM_B` is a convenience for the 4-agent conflict-of-interest
@@ -65,7 +65,7 @@ on all interfaces and can display either strict batch output shape.
 
 ## Diagnostic entry points
 
-`probe_reasoning.py`, `single_test.py`, `error_hunt.py` and `complete_game.py`
+`tools/probe_reasoning.py`, `tools/single_test.py`, `tools/error_hunt.py` and `tools/complete_game.py`
 are explicit live API diagnostics. Importing their modules does not start runs.
 Run them deliberately with credentials configured; their default model names
 are examples from earlier experiments and may need adjustment.
@@ -82,15 +82,15 @@ specified protocol change. See [README.md](README.md).
 ## Live table (play vs LLMs in the browser)
 
 ```bash
-python live_server.py --port 8123 \
+python -m musbench.live.server --port 8123 \
     --seats human,glm5.3-flash,deepseek-v4-flash,heuristic --hands 12
 ```
 
 Open the printed seat URLs (one per human seat, token-authenticated); a
 tokenless visit is a spectator. The sidebar has a Bench tab that aggregates
 everything under `--results-dir` (default `results/`): tournament summaries
-(`run_tournament.py --out results/tournament`) and strict batch outputs
-(`run_llm_vs_baseline.py --out ...`). Poll it during long runs — the tab
+(`src/musbench/harness/tournament.py --out results/tournament`) and strict batch outputs
+(`tools/run_llm_vs_baseline.py --out ...`). Poll it during long runs — the tab
 refreshes every 20 s and shows the vacas leaderboard plus per-match rows.
 `GET /api/results` exposes the same aggregation as JSON.
 

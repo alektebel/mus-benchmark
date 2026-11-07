@@ -11,9 +11,9 @@ import tempfile
 import unittest
 from random import Random
 
-from decision_log import DecisionLog
-from mus_engine import MusEngine
-from virtual_kernel import run_match_kernel
+from musbench.observe.decision_log import DecisionLog
+from musbench.mus.engine import MusEngine
+from musbench.harness.kernel import run_match_kernel
 
 
 def deals_for(models, seed, hands=14):
@@ -73,7 +73,7 @@ class JobPairingTest(unittest.TestCase):
     PAIRS = [("a", "b"), ("b", "a")]
 
     def test_mirror_gives_every_pairing_every_seed(self):
-        import run_tournament as rt
+        import musbench.harness.tournament as rt
         jobs = rt.build_jobs(self.PAIRS, [6, 7], mirror=True)
         self.assertEqual(len(jobs), 4)
         for seed in (6, 7):
@@ -81,12 +81,12 @@ class JobPairingTest(unittest.TestCase):
                 sorted(p for p, s in jobs if s == seed), sorted(self.PAIRS))
 
     def test_default_zip_leaves_orientations_on_different_deals(self):
-        import run_tournament as rt
+        import musbench.harness.tournament as rt
         jobs = rt.build_jobs(self.PAIRS, [6, 7])
         self.assertEqual(jobs, [(("a", "b"), 6), (("b", "a"), 7)])
 
     def test_paired_rows_cancel_the_deal_out(self):
-        import run_tournament as rt
+        import musbench.harness.tournament as rt
         # same cards both ways; "a" nets +10 in one seating and +6 in the other
         entries = [
             {"team_a": "a", "team_b": "b", "seed": 6, "status": "done",
@@ -105,7 +105,7 @@ class JobPairingTest(unittest.TestCase):
         per hand for a deterministic policy, and NOT caused by the shared draw
         pile -- it survives MUS_ROUNDS_MAX=0). Pairing the two orientations
         removes it by construction, which is the reason --mirror exists."""
-        import run_tournament as rt
+        import musbench.harness.tournament as rt
         d, bias, n = 4, 7, 10          # true edge to "a", plus a seat bias
         entries = [
             # orientation 1: "a" sits in seats 0+2 and collects the bias
@@ -125,14 +125,14 @@ class JobPairingTest(unittest.TestCase):
         self.assertNotEqual(row["piedra_diff_seat_b"], d)
 
     def test_an_unmatched_orientation_is_dropped(self):
-        import run_tournament as rt
+        import musbench.harness.tournament as rt
         entries = [{"team_a": "a", "team_b": "b", "seed": 6, "status": "done",
                     "result": {"piedras_a": 40, "piedras_b": 30,
                                "hands_completed": 10}}]
         self.assertEqual(rt.paired_rows(entries), [])
 
     def test_degraded_matches_never_enter_a_pair(self):
-        import run_tournament as rt
+        import musbench.harness.tournament as rt
         entries = [
             {"team_a": "a", "team_b": "b", "seed": 6, "status": "done",
              "result": {"piedras_a": 40, "piedras_b": 30, "hands_completed": 10}},

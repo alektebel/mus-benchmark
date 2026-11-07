@@ -9,10 +9,11 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 import tempfile
 import unittest
 
-from turn_feed import TurnFeed, PUBLIC_FIELDS
+from musbench.observe.turn_feed import TurnFeed, PUBLIC_FIELDS
 
 CARD_RE = re.compile(
     r"\b(as|dos|tres|cuatro|cinco|seis|siete|sota|caballo|rey) "
@@ -90,7 +91,7 @@ class EndToEndLeakTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         r = subprocess.run(
-            [sys.executable, "run_mock_match.py", "--hands", "10",
+            [sys.executable, str(Path(__file__).resolve().parents[1] / "tools" / "run_mock_match.py"), "--hands", "10",
              "--seed", "6", "--turn-feed", "--memory", "notes",
              "--out", cls.tmp.name],
             capture_output=True, text=True,

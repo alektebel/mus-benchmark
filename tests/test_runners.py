@@ -10,8 +10,10 @@ from random import Random
 import unittest
 from unittest.mock import Mock, patch
 
-import apifail
-import run_benchmark_strict as strict
+import musbench.live.apifail as apifail
+import musbench.harness.bench_strict as strict
+import sys, os as _os
+sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), '..', 'tools'))
 import run_llm_vs_baseline as baseline
 
 
@@ -73,7 +75,7 @@ class RunnerTests(unittest.TestCase):
                 self.assertTrue(all(r['status'] == 'error' and 'broken' in r['msg'] for r in results))
 
     def test_diagnostic_imports_do_not_start_matches(self):
-        with patch('run_match_strict.run_match_strict') as run:
+        with patch('musbench.harness.match.run_match_strict') as run:
             for module in ('single_test', 'error_hunt'):
                 importlib.reload(importlib.import_module(module))
             run.assert_not_called()

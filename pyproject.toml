@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "musbench"
+version = "0.1.0"
+description = "LLM cooperation in 2v2 mus under partial observability"
+requires-python = ">=3.10"
+dependencies = ["requests"]
+
+[project.scripts]
+mus-live = "musbench.live.server:main"
+mus-tournament = "musbench.harness.tournament:main"
+mus-bench-kernel = "musbench.harness.bench_kernel:main"
+mus-bench-strict = "musbench.harness.bench_strict:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

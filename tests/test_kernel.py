@@ -3,17 +3,17 @@ import unittest
 from random import Random
 from unittest.mock import patch
 
-from deck import Card
-from groupchat import Channels
-from mus_engine import MusEngine, Phase, LANCE_NAMES, TEAM_OF
-from senas import SENAS
-import agents
-import apifail
-import virtual_kernel as vk
-from signal_bus import SignalBus
-from signal_manager import (PolicyError, SignalManager, SignalPolicy,
+from musbench.mus.deck import Card
+from musbench.agents.groupchat import Channels
+from musbench.mus.engine import MusEngine, Phase, LANCE_NAMES, TEAM_OF
+from musbench.mus.senas import SENAS
+import musbench.agents.core as agents
+import musbench.live.apifail as apifail
+import musbench.harness.kernel as vk
+from musbench.observe.signal_bus import SignalBus
+from musbench.observe.signal_manager import (PolicyError, SignalManager, SignalPolicy,
                             SignalRule, reference_policy)
-from virtual_kernel import Kernel, SeatProcess, run_hand_kernel, \
+from musbench.harness.kernel import Kernel, SeatProcess, run_hand_kernel, \
     run_match_kernel, make_procs
 
 

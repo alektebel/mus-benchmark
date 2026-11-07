@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# Build the static play page for alektebel.github.io from live_ui.INDEX_HTML.
-# The page is written for same-origin serving by live_server.py; the static
-# build rewrites API/SSE calls to the AWS backend and card art to the copy
-# already hosted at /mus/cards/ on the site.
+# Build the static table page for diegoatencia.dev/mus/ from musbench.live.ui.
+#
+# The page is written for same-origin serving by src/musbench/live/server.py;
+# the static build points its two endpoint constants at the AWS backend and at
+# the card art already hosted under /mus/cards/ on the site. The leaderboard
+# reads /mus/bench-v2-results.json from the site itself.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BACKEND="${MUS_BACKEND:-https://52.31.169.175.sslip.io}"
-OUT="${1:-${PAGES_DIR:-/home/diego/Documents/Development/alektebel.github.io}/mus/play/index.html}"
+BACKEND="${MUS_BACKEND:-https://34.253.36.5.sslip.io}"
+OUT="${1:-${PAGES_DIR:-$HOME/Github/alektebel.github.io}/mus/index.html}"
 
-python3 -c "from live_ui import INDEX_HTML; import sys; sys.stdout.write(INDEX_HTML)" \
-  | sed "s|fetch('/api/|fetch('${BACKEND}/api/|g;
-         s|new EventSource('/events|new EventSource('${BACKEND}/events|g;
-         s|fetch('/snapshot|fetch('${BACKEND}/snapshot|g;
-         s|'/cards/card_|'/mus/cards/card_|g;
-         s|src=\"/cards/card_back.svg\"|src=\"/mus/cards/card_back.svg\"|g" \
+PYTHONPATH=src python3 -c "from musbench.live.ui import INDEX_HTML; import sys; sys.stdout.write(INDEX_HTML)" \
+  | sed "s|^const API = '';|const API = '${BACKEND}';|;
+         s|^const CARDS = '/cards/';|const CARDS = '/mus/cards/';|" \
   > "$OUT"
 
+grep -q "^const API = '${BACKEND}';" "$OUT" || { echo "API rewrite failed" >&2; exit 1; }
+grep -q "^const CARDS = '/mus/cards/';" "$OUT" || { echo "CARDS rewrite failed" >&2; exit 1; }
 echo "built $OUT (backend: ${BACKEND})"
