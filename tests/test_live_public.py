@@ -7,6 +7,7 @@ import os
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import musbench.live.public as live_public
 
@@ -113,6 +114,33 @@ class MeteringTest(unittest.TestCase):
         self.assertEqual(off[0], "human")
         self.assertEqual(off[1:], ["heuristic"] * 3)
         self.assertEqual(live_public.public_specs(specs, llm=True), specs)
+
+    def test_roll_lineup_keeps_human_and_samples_pool(self):
+        import random
+        os.environ["MUS_MODEL_POOL"] = "alpha,beta,gamma,delta"
+        try:
+            live_public._models_cache["ids"] = []
+            template = ["human", "glm5.3-flash", "deepseek-v4-flash", "qwen3.6"]
+            a = live_public.roll_lineup(template, rng=random.Random(1))
+            b = live_public.roll_lineup(template, rng=random.Random(2))
+            self.assertEqual(a[0], "human")
+            self.assertEqual(b[0], "human")
+            self.assertEqual(len(set(a[1:])), 3)
+            self.assertTrue(set(a[1:]).issubset({"alpha", "beta", "gamma", "delta"}))
+            self.assertNotEqual(a[1:], b[1:])
+        finally:
+            os.environ.pop("MUS_MODEL_POOL", None)
+            live_public._models_cache["ids"] = []
+
+    def test_list_nan_chat_models_filters_non_chat(self):
+        live_public._models_cache["ids"] = []
+        live_public._models_cache["at"] = 0.0
+        fake = ["glm5.3-flash", "whisper", "qwen3-embedding", "flux-2-klein",
+                "deepseek-v4-flash", "kokoro", "gemma4"]
+        with mock.patch.object(live_public, "_fetch_nan_model_ids",
+                               return_value=fake):
+            got = live_public.list_nan_chat_models(force=True)
+        self.assertEqual(got, ["glm5.3-flash", "deepseek-v4-flash", "gemma4"])
 
 
 class RegistryTest(unittest.TestCase):

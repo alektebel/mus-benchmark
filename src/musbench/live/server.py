@@ -1208,14 +1208,17 @@ def main():
 
         def _factory(llm: bool, hands: int):
             # Seats are rebuilt per session so one browser's budget-exhausted
-            # table cannot hand offline seats to somebody else's game.
-            tbl = LiveTable(live_public.public_specs(specs, llm),
+            # table cannot hand offline seats to somebody else's game. Each
+            # nueva vaca rolls three rivals from the NAN chat catalog.
+            chosen = live_public.roll_lineup(specs)
+            print(f"  [seats] lineup {chosen}", flush=True)
+            tbl = LiveTable(live_public.public_specs(chosen, llm),
                             hands=hands, seed=args.seed)
-            # Keep the advertised MUS_SEATS lineup even if this session has to
+            # Keep the rolled models in lineup even if this session has to
             # play offline heuristics (busy / budget / missing key).
-            tbl.lineup = list(specs)
+            tbl.lineup = list(chosen)
             original = tbl.start_new
-            state = {"llm": llm}
+            state = {"llm": llm, "chosen": list(chosen)}
 
             def start_new(*a, **kw):
                 # Agents are constructed inside start_new(), so this is the
@@ -1229,7 +1232,7 @@ def main():
                         raise
                     print(f"  [seats] offline fallback: {e}", flush=True)
                     state["llm"] = False
-                    tbl.specs = live_public.public_specs(specs, False)
+                    tbl.specs = live_public.public_specs(state["chosen"], False)
                     game = original(*a, **kw)
                 if state["llm"]:
                     game.agents = [live_public.budgeted_agent(ag, _budget)

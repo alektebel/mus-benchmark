@@ -19,10 +19,14 @@ from __future__ import annotations
 
 import json
 import os
+import random
+import re
 import secrets
 import threading
 import time
 from dataclasses import dataclass, field
+
+import requests
 
 import musbench.observe.trace_store as trace_store
 
@@ -35,6 +39,20 @@ SESSION_IDLE_TTL = float(os.environ.get("MUS_SESSION_IDLE_TTL", "900"))
 GAMES_PER_IP_HOUR = int(os.environ.get("MUS_GAMES_PER_IP_HOUR", "6"))
 PUBLIC_HANDS = int(os.environ.get("MUS_PUBLIC_HANDS", "4"))
 STATE_PATH = os.environ.get("MUS_BUDGET_STATE", "/tmp/mus-budget.json")
+NAN_MODELS_TTL = float(os.environ.get("MUS_NAN_MODELS_TTL", "300"))
+# NAN /v1/models also lists embeddings, ASR, TTS, image — keep chat seats only.
+_NON_CHAT = re.compile(
+    r"(embedding|rerank|whisper|kokoro|tts|asr|flux|image|audio|speech|"
+    r"vision|moderation|transcrib)",
+    re.I,
+)
+_OFFLINE_SEAT = re.compile(r"^(human|heuristic|random|eps:.+)$", re.I)
+_FALLBACK_CHAT = [
+    "glm5.3-flash", "deepseek-v4-flash", "qwen3.6", "qwen3.8-flash",
+    "gemma4", "mimo-v2.6-flash", "minimax-h3",
+]
+_models_cache: dict = {"at": 0.0, "ids": []}
+_models_lock = threading.Lock()
 
 
 def _today() -> str:
@@ -297,3 +315,84 @@ def public_specs(specs, llm: bool):
         return list(specs)
     return [s if str(s).strip().lower() == "human" else "heuristic"
             for s in specs]
+
+
+def _is_fixed_seat(spec: str) -> bool:
+    return bool(_OFFLINE_SEAT.match(str(spec).strip()))
+
+
+def _fetch_nan_model_ids() -> list[str]:
+    """GET provider /v1/models; empty list on any failure."""
+    base = os.environ.get("NAN_API_BASE", "https://api.nan.builders/v1").rstrip("/")
+    key = os.environ.get("NAN_API_KEY", "").strip()
+    if not key:
+        return []
+    try:
+        r = requests.get(f"{base}/models",
+                         headers={"Authorization": f"Bearer {key}"},
+                         timeout=8)
+        r.raise_for_status()
+        data = r.json().get("data") or r.json().get("models") or []
+    except Exception:  # noqa: BLE001 — table must open even if catalog is down
+        return []
+    ids = []
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                mid = item.get("id") or item.get("name")
+            else:
+                mid = str(item)
+            if mid:
+                ids.append(str(mid).strip())
+    return ids
+
+
+def list_nan_chat_models(force: bool = False) -> list[str]:
+    """Chat-capable NAN model ids for live seats.
+
+    Order of preference:
+      1. `MUS_MODEL_POOL` (comma-separated allow-list)
+      2. live `/v1/models` minus non-chat ids (cached)
+      3. baked-in fallback list of known NAN chat models
+    """
+    pool_env = os.environ.get("MUS_MODEL_POOL", "").strip()
+    if pool_env:
+        return [s.strip() for s in pool_env.split(",") if s.strip()]
+
+    now = time.time()
+    with _models_lock:
+        if (not force and _models_cache["ids"]
+                and now - _models_cache["at"] < NAN_MODELS_TTL):
+            return list(_models_cache["ids"])
+
+    fetched = _fetch_nan_model_ids()
+    chat = [m for m in fetched if m and not _NON_CHAT.search(m)]
+    if not chat:
+        chat = list(_FALLBACK_CHAT)
+    with _models_lock:
+        _models_cache["at"] = time.time()
+        _models_cache["ids"] = list(chat)
+    return list(chat)
+
+
+def roll_lineup(template: list[str], rng: random.Random | None = None) -> list[str]:
+    """Keep human/offline seats from `template`; fill the rest from NAN at random.
+
+    Prefers distinct models when the pool is large enough. `template` still
+    decides *which* chairs are human (usually seat 0).
+    """
+    rng = rng or random.SystemRandom()
+    out = [str(s).strip() for s in template]
+    slots = [i for i, s in enumerate(out) if not _is_fixed_seat(s)]
+    if not slots:
+        return out
+    pool = list_nan_chat_models()
+    if not pool:
+        pool = list(_FALLBACK_CHAT)
+    if len(pool) >= len(slots):
+        picks = rng.sample(pool, len(slots))
+    else:
+        picks = [rng.choice(pool) for _ in slots]
+    for i, seat in enumerate(slots):
+        out[seat] = picks[i]
+    return out
