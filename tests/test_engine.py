@@ -66,6 +66,29 @@ class EngineRegressionTests(unittest.TestCase):
                 self.engine.apply(0, {"action": "no-tengo"})
             self.assertEqual(self.engine.declared, {})
 
+    def test_pares_envite_skips_seats_without_pares(self):
+        # Real table: only "tengo" seats play the pares envite.
+        e = self.engine
+        e.mano = 0
+        e.current_seat = 0
+        e.lance_index = 2
+        e.phase = Phase.DECLARE
+        e.declared = {}
+        e.hands[0] = hand("rey", "rey", "as", "dos")
+        e.hands[1] = hand("caballo", "caballo", "cuatro", "cinco")
+        e.hands[2] = hand("as", "dos", "seis", "siete")
+        e.hands[3] = hand("as", "dos", "seis", "siete")
+        for s in range(4):
+            has = e._pares_value(e.hands[s])[0] > 0
+            e.current_seat = s
+            e.apply(s, {"action": "tengo" if has else "no-tengo"})
+        self.assertEqual(e.phase, Phase.ENVITE)
+        self.assertEqual(e.envite.folded, {2, 3})
+        self.assertEqual(e.current_seat, 0)
+        self.assertIn("envido", e.legal_actions(0))
+        e.current_seat = 2
+        self.assertEqual(e.legal_actions(2), [])
+
     def test_invalid_discard_is_atomic(self):
         self.engine.phase = Phase.MUS_DRAW
         self.engine.mus_want = {0, 1, 2, 3}

@@ -411,9 +411,14 @@ class MusEngine:
         t0 = any(self.declared[s] for s in (0, 2))
         t1 = any(self.declared[s] for s in (1, 3))
         if t0 and t1:
+            # Only seats that declared "tengo" play this envite. Sin pares /
+            # sin juego are spectators for the lance (real-table rule).
             self.envite = EnviteState()
+            for s in range(4):
+                if not self.declared.get(s):
+                    self.envite.folded.add(s)
             self.phase = Phase.ENVITE
-            self.current_seat = self.mano
+            self.current_seat = self._next_unfolded((self.mano - 1) % 4)
         elif t0 or t1:
             w = 0 if t0 else 1
             self._award_lance(lance, w)          # uncontested jugada value
@@ -444,7 +449,8 @@ class MusEngine:
                 return
             e.spoke.add(seat)
             nxt = self._next_unfolded(seat)
-            if len(e.spoke) == 4:
+            active = {s for s in range(4) if s not in e.folded}
+            if active and active <= e.spoke:
                 self._end_lance_pass()
             else:
                 self.current_seat = nxt
