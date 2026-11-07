@@ -858,8 +858,9 @@ function renderButtons(legal){
     box.append(b, all);
   } else {
     let shown = legal.slice();
-    const truth = declTruth();
-    if(truth !== null && shown.includes('tengo') && shown.includes('no-tengo')) shown = shown.filter(a => a !== (truth ? 'no-tengo' : 'tengo'));
+    // Pares/Juego declarations are applied automatically by the server.
+    shown = shown.filter(a => a !== 'tengo' && a !== 'no-tengo');
+    if(!shown.length) return;
     shown.sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)).forEach(a => {
       const b = el('button', 'pill' + (a === 'ordago' ? ' hot' : SOFT.has(a) ? ' soft' : ''), esc(LABELS[a] || a));
       b.onclick = () => {

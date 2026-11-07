@@ -198,6 +198,23 @@ class TestTableFeedForUI(unittest.TestCase):
         ok, err = g.submit_human_action(0, {"action": "mus"})
         self.assertFalse(ok)
 
+    def test_human_declare_is_automatic_and_truthful(self):
+        g = LiveGame(["human", "heuristic", "heuristic", "heuristic"],
+                     hands=1, seed=13)
+        g.engine.deal()
+        g.engine.phase = Phase.DECLARE
+        g.engine.lance_index = 2  # Pares
+        g.engine.declared = {}
+        g.engine.current_seat = 0
+        seat0 = g.human_agents[0]
+        hand = list(g.engine.hands[0])
+        has = g.engine._pares_value(hand)[0] > 0
+        g._human_turn(seat0, hand)
+        self.assertEqual(g.engine.declared.get(0), has)
+        self.assertIsNone(g.pending_human)
+        snap = g.snapshot(seat0.token)
+        self.assertEqual(snap["you"]["legal"], [])
+
     def test_turn_clock_exposed_while_human_decides(self):
         g = LiveGame(["human", "heuristic", "heuristic", "heuristic"],
                      hands=1, seed=9)

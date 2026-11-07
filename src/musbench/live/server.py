@@ -344,6 +344,17 @@ class LiveGame:
 
     def _human_turn(self, agent: HumanSeat, hand) -> None:
         seat = agent.seat
+        # Pares/Juego declarations are forced by the hand — never ask the
+        # human to click tengo/no-tengo. The engine rejects false ones.
+        if self.engine.phase == Phase.DECLARE:
+            action = _default_legal(self.engine, seat)
+            try:
+                self.engine.apply(seat, action)
+                self._emit(agent, action, hand)
+                self._narrate(agent, action)
+                return
+            except IllegalAction as e:  # noqa: BLE001 — fall through to UI
+                self.human_error[seat] = str(e)
         legal = self.engine.legal_actions(seat)
         error = self.human_error.pop(seat, None)
         self.pending_human = {"seat": seat, "legal": legal, "error": error}
