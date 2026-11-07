@@ -131,8 +131,7 @@ nav.views a:hover{color:var(--color-accent-200)}
 .avatar img{position:absolute;inset:0;margin:auto;width:18px;height:18px;object-fit:contain;display:block}
 .avatar:has(img) > span{display:none}
 .who .nm{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0}
-.who .name{font-family:var(--font-heading);font-size:14px;opacity:.85;transition:opacity .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;display:inline-flex;align-items:center;gap:6px}
-.who .name img{width:14px;height:14px;object-fit:contain;flex:0 0 auto}
+.who .name{font-family:var(--font-heading);font-size:14px;opacity:.85;transition:opacity .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
 .seat.thinking .name{opacity:1}
 .who .role{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--color-neutral-500);white-space:nowrap}
 .hand{position:relative;display:flex;padding-left:24px;min-height:98px}
@@ -704,8 +703,7 @@ function renderSeat(area){
     // Letter only as fallback; CSS hides it when the provider img is present.
     E.avatar.innerHTML = '<span style="color:' + f.color + '">' + esc((name[0] || '?').toUpperCase()) + '</span>' +
       (f.icon ? '<img src="' + f.icon + '" alt="' + esc(f.lab) + '"' + (f.mono ? ' style="filter:invert(1)"' : '') + '>' : '');
-    E.name.innerHTML = (f.icon ? '<img src="' + f.icon + '" alt="">' : '') + esc(name);
-    E.name.style.color = f.color; E.name.title = s.model || '';
+    E.name.textContent = name; E.name.style.color = f.color; E.name.title = s.model || '';
   }
   const decl = s.declared === true ? (S.lance ? 'con ' + S.lance.toLowerCase() : 'tengo') : s.declared === false ? (S.lance ? 'sin ' + S.lance.toLowerCase() : 'no tengo') : '';
   E.role.textContent = [partner ? 'compañero' : 'rival', f.lab, S.mano === seat ? 'mano' : '', s.folded ? 'fuera' : '', decl].filter(Boolean).join(' · ');
