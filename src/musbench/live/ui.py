@@ -154,9 +154,9 @@ nav.views a:hover{color:var(--color-accent-200)}
 .avatar .timer .arc{stroke:var(--color-accent-300);transition:stroke .2s}
 .avatar .timer.urgent .arc{stroke:var(--color-accent-100)}
 .nm{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;line-height:1.15}
-.who .name,.me .mywho .name{display:block;font-family:var(--font-heading);font-size:14px;opacity:.88;transition:opacity .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(200px,28vw)}
+.who .name,.me .mywho .name{display:block;font-family:var(--font-heading);font-size:14px;opacity:.88;transition:opacity .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(240px,36vw)}
 .seat.thinking .name{opacity:1}
-.who .role,.me .mywho .role{display:block;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--color-neutral-500);white-space:nowrap;max-width:min(200px,28vw);overflow:hidden;text-overflow:ellipsis}
+.who .role,.me .mywho .role{display:block;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--color-neutral-500);white-space:nowrap;max-width:min(240px,36vw);overflow:hidden;text-overflow:ellipsis}
 .mano-tag{font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:var(--color-accent-200);
   border:1px solid color-mix(in srgb, var(--color-accent-400) 45%, transparent);padding:3px 8px;border-radius:999px}
 .hand{position:relative;display:flex;padding-left:calc(var(--rival-w, 55px) * var(--hand-overlap));min-height:calc(var(--rival-w, 55px) * var(--card-ratio));flex:0 0 auto}
@@ -616,14 +616,26 @@ const FAMILIES = [
   [/jev/i,'jev','oklch(0.84 0.09 70)',null],
   [/heuristic|random|offline/i,'offline','var(--color-neutral-400)',null]
 ];
-/* Default table lineup (matches live --seats) so empty chairs still show logos. */
+/* Default table lineup (matches live MUS_SEATS) so empty chairs still show logos. */
 const DEFAULT_SEATS = ['human', 'glm5.3-flash', 'deepseek-v4-flash', 'qwen3.6'];
-let LAST_SEATS = null;
+const OFFLINE_RE = /^(heuristic|random|offline)$/i;
+let LAST_LINEUP = null;
 function family(name){ const n = String(name || ''); for(const f of FAMILIES) if(f[0].test(n)) return {lab:f[1], color:f[2], icon:f[3] ? ICONS[f[3]] || '' : '', mono:f[3] === 'openai'}; return {lab:'', color:'var(--color-text)', icon:'', mono:false}; }
 const cleanModel = m => String(m || '').replace(/^[a-z]+:/i, '');
+function rememberLineup(cfg){
+  if(!cfg) return;
+  const src = cfg.lineup || cfg.seats;
+  if(!Array.isArray(src) || src.length !== 4) return;
+  // Prefer a lineup that still names real models (not a busy-table heuristic rewrite).
+  if(src.some(s => s && !OFFLINE_RE.test(String(s)) && !/^human$/i.test(String(s))))
+    LAST_LINEUP = src.slice();
+  else if(!LAST_LINEUP && cfg.lineup) LAST_LINEUP = cfg.lineup.slice();
+}
 function seatModelHint(seat){
-  const specs = (S && S.config && S.config.seats) || LAST_SEATS || DEFAULT_SEATS;
-  return specs[seat] || '';
+  const lineup = (S && S.config && (S.config.lineup || S.config.seats)) || LAST_LINEUP || DEFAULT_SEATS;
+  const live = S && S.config && S.config.seats ? S.config.seats[seat] : '';
+  if(live && !OFFLINE_RE.test(String(live))) return live;
+  return lineup[seat] || live || '';
 }
 function iconImg(name, size){
   const f = family(name); if(!f.icon) return '';
@@ -660,12 +672,27 @@ function areaOf(seat){ const d = (seat - mySeat() + 4) % 4; return ['me','left',
 function seatAt(area){ const d = {me:0,left:1,top:2,right:3}[area]; return (mySeat() + d) % 4; }
 const teamWord = t => t === myTeam() ? 'nosotros' : 'ellos';
 function displayName(seat){
-  const s = S && S.seats[seat]; if(!s) return '';
-  if(S.you && seat === S.you.seat) return NICK || 'tú';
-  if(s.is_llm) return cleanModel(s.model);
-  return s.name;
+  const s = S && S.seats[seat];
+  if(S && S.you && seat === S.you.seat) return NICK || 'tú';
+  if(s && s.is_llm) return cleanModel(s.model);
+  const hint = seatModelHint(seat);
+  if(hint && !OFFLINE_RE.test(hint) && !/^human$/i.test(hint)) return cleanModel(hint);
+  if(s) return cleanModel(s.model) || s.name || '';
+  return cleanModel(hint) || '';
 }
-function modelKey(seat){ const s = S && S.seats[seat]; return s ? (s.is_llm ? s.model : s.model || s.name) : ''; }
+function modelKey(seat){
+  // Icon / colour key: prefer the live LLM model, else the advertised chair.
+  const s = S && S.seats[seat];
+  if(s && s.is_llm && s.model) return s.model;
+  const hint = seatModelHint(seat);
+  if(hint && !/^human$/i.test(hint)) return hint;
+  return s ? (s.model || s.name || '') : '';
+}
+function seatOffline(seat){
+  const s = S && S.seats[seat];
+  if(!s || s.is_llm) return false;
+  return OFFLINE_RE.test(String(s.model || ''));
+}
 
 /* ═════════ RENDER: mesa ═════════ */
 const TIMER_SVG = '<svg class="timer" viewBox="0 0 36 36" aria-hidden="true"><circle class="track" cx="18" cy="18" r="16"></circle><circle class="arc" cx="18" cy="18" r="16" pathLength="100" stroke-dasharray="100 100" stroke-dashoffset="0"></circle></svg>';
@@ -731,15 +758,17 @@ function paintAvatar(avatar, name, f){
 function renderSeat(area){
   const E = seatEls[area], seat = seatAt(area);
   const s = S ? S.seats[seat] : null;
-  if(!s){ // placeholder before a game exists — still show provider marks
-    const key = seatModelHint(seat), f = family(key);
+  if(!s){ // placeholder before a game exists — show model + provider mark
+    const key = seatModelHint(seat), f = family(key), label = cleanModel(key) || (area === 'top' ? 'compañero' : 'rival');
     const sig = 'empty|' + key + '|' + rivalCardW() + '|' + (f.icon ? '1' : '0');
+    E.head = null;
     if(E.sig !== sig){ E.sig = sig;
-      paintAvatar(E.avatar, f.lab || '·', f.icon ? f : {color:'var(--color-neutral-500)', icon:'', mono:false, lab:''});
+      paintAvatar(E.avatar, label, f.icon ? f : {color:'var(--color-neutral-500)', icon:'', mono:false, lab:''});
       if(!f.icon){ const sp = E.avatar.querySelector(':scope > span'); if(sp) sp.textContent = '·'; }
-      E.name.textContent = area === 'top' ? 'compañero' : 'rival';
+      E.name.textContent = label;
       E.name.style.color = f.color || 'var(--color-neutral-500)';
-      E.role.textContent = f.lab ? (f.lab + ' · por sentarse') : 'por sentarse';
+      E.name.title = key || '';
+      E.role.textContent = [area === 'top' ? 'compañero' : 'rival', f.lab, 'por sentarse'].filter(Boolean).join(' · ');
       E.hand.querySelectorAll('.slot').forEach(n => n.remove());
       for(let i = 0; i < 4; i++){ const sl = el('div','slot'); sl.appendChild(cardNode(null, rivalCardW())); E.hand.appendChild(sl); }
       E.hand.style.opacity = .35; }
@@ -751,16 +780,17 @@ function renderSeat(area){
   const name = displayName(seat), key = modelKey(seat), f = family(key);
   const partner = s.team === myTeam();
   const isMano = S.mano === seat;
+  const offline = seatOffline(seat);
   E.root.classList.toggle('thinking', !!s.thinking);
   E.root.classList.toggle('is-mano', isMano);
   E.avatar.style.boxShadow = s.thinking ? '0 0 0 3px color-mix(in srgb, ' + f.color + ' 22%, transparent), 0 0 16px ' + f.color : 'none';
-  const head = name + '|' + key + '|' + (f.icon ? '1' : '0');
+  const head = name + '|' + key + '|' + (f.icon ? '1' : '0') + '|' + (offline ? 'off' : 'on');
   if(E.head !== head){ E.head = head;
-    paintAvatar(E.avatar, name, f);
-    E.name.textContent = name; E.name.style.color = f.color; E.name.title = s.model || '';
+    paintAvatar(E.avatar, name, f.icon ? f : {color:f.color || 'var(--color-neutral-500)', icon:'', mono:false, lab:f.lab || ''});
+    E.name.textContent = name; E.name.style.color = f.color; E.name.title = (s.model || key || '') + (offline ? ' (offline)' : '');
   }
   const decl = s.declared === true ? (S.lance ? 'con ' + S.lance.toLowerCase() : 'tengo') : s.declared === false ? (S.lance ? 'sin ' + S.lance.toLowerCase() : 'no tengo') : '';
-  E.role.textContent = [partner ? 'compañero' : 'rival', f.lab, isMano ? 'mano' : '', s.folded ? 'fuera' : '', decl].filter(Boolean).join(' · ');
+  E.role.textContent = [partner ? 'compañero' : 'rival', f.lab, offline ? 'offline' : '', isMano ? 'mano' : '', s.folded ? 'fuera' : '', decl].filter(Boolean).join(' · ');
   // cards sit to the right of the player (left of the right-side seat via row-reverse)
   let cards = null, mode = 'back';
   const rv = recapShowing() ? recap.data : null;
@@ -1143,7 +1173,7 @@ function applySnapshot(d){
   const first = !S;
   needNew = false;
   prevSnap = S; S = d; lastVersion = d.version;
-  if(S.config && S.config.seats) LAST_SEATS = S.config.seats.slice();
+  rememberLineup(S.config);
   setStatus('live');
   // end-of-hand reveal → recap window
   if(S.reveal && S.reveal.hand !== lastRevealHand){

@@ -92,10 +92,13 @@ class LiveGame:
     """One match on one engine, kernel sena layer, human seats allowed."""
 
     def __init__(self, specs: list[str], hands: int = 12, seed: int = 0,
-                 vaca_limit: int = 0):
+                 vaca_limit: int = 0, lineup: list[str] | None = None):
         if len(specs) != 4 or any(not s for s in specs):
             raise ValueError("exactly four non-empty seat specs are required")
         self.specs = list(specs)
+        # Advertised models for the chairs (may differ from specs when the
+        # public table has to deal offline heuristics under load).
+        self.lineup = list(lineup) if lineup is not None else list(specs)
         self.hands = hands
         self.seed = seed
         self.vaca_limit = vaca_limit
@@ -712,7 +715,9 @@ class LiveGame:
             "you": None,
             "reveal": self.reveal,
             "history": self.history[-20:],
-            "config": {"seats": self.specs, "hands": self.hands,
+            "config": {"seats": self.specs,
+                       "lineup": list(getattr(self, "lineup", self.specs)),
+                       "hands": self.hands,
                        "seed": self.seed, "vaca_limit": self.vaca_limit},
             "senas_vocab": {g: m for g, (m, _src) in SENAS.items()},
             "stats": dict(self.stats,
@@ -767,6 +772,7 @@ class LiveTable:
     def __init__(self, specs: list[str], hands: int = 12, seed: int = 0,
                  vaca_limit: int = 0):
         self.specs = list(specs)
+        self.lineup = list(specs)
         self.hands = hands
         self.seed = seed
         self.vaca_limit = vaca_limit
@@ -786,7 +792,7 @@ class LiveTable:
                 self.seed = seed
             vl = self.vaca_limit if vaca_limit is None else vaca_limit
             self.game = LiveGame(self.specs, hands=self.hands, seed=self.seed,
-                                 vaca_limit=vl)
+                                 vaca_limit=vl, lineup=self.lineup)
             self.game.epoch = self.epoch
             self.game.start()
             return self.game
@@ -1193,6 +1199,9 @@ def main():
             # table cannot hand offline seats to somebody else's game.
             tbl = LiveTable(live_public.public_specs(specs, llm),
                             hands=hands, seed=args.seed)
+            # Keep the advertised MUS_SEATS lineup even if this session has to
+            # play offline heuristics (busy / budget / missing key).
+            tbl.lineup = list(specs)
             original = tbl.start_new
             state = {"llm": llm}
 
