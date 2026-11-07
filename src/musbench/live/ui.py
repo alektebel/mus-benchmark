@@ -144,27 +144,27 @@ nav.views a:hover{color:var(--color-accent-200)}
 .seat[data-area=top] .hand{order:1}
 .who{display:flex;align-items:center;gap:var(--space-2)}
 .avatar{position:relative;width:34px;height:34px;flex:0 0 auto;border-radius:50%;border:1px solid var(--color-neutral-800);
-  display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-size:12px;transition:box-shadow .3s;background:#000}
-.avatar img{position:absolute;inset:0;margin:auto;width:18px;height:18px;object-fit:contain;display:block;z-index:1}
-.avatar:has(img) > span{display:none}
+  display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-size:12px;transition:box-shadow .3s,border-color .3s;background:#000}
+.avatar.has-icon{border-color:color-mix(in srgb, var(--color-neutral-500) 55%, transparent)}
+.avatar img{position:absolute;inset:0;margin:auto;width:20px;height:20px;object-fit:contain;display:block;z-index:1;pointer-events:none}
 .avatar > span{position:relative;z-index:1}
 .avatar .timer{position:absolute;inset:-5px;width:calc(100% + 10px);height:calc(100% + 10px);transform:rotate(-90deg);pointer-events:none;z-index:2}
 .avatar .timer circle{fill:none;stroke-width:2.4;stroke-linecap:round}
 .avatar .timer .track{stroke:var(--color-neutral-800)}
 .avatar .timer .arc{stroke:var(--color-accent-300);transition:stroke .2s}
 .avatar .timer.urgent .arc{stroke:var(--color-accent-100)}
-.who .nm{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
-.who .name{font-family:var(--font-heading);font-size:14px;opacity:.88;transition:opacity .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(200px,28vw)}
+.nm{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;line-height:1.15}
+.who .name,.me .mywho .name{display:block;font-family:var(--font-heading);font-size:14px;opacity:.88;transition:opacity .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(200px,28vw)}
 .seat.thinking .name{opacity:1}
-.who .role{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--color-neutral-500);white-space:nowrap;max-width:min(200px,28vw);overflow:hidden;text-overflow:ellipsis}
+.who .role,.me .mywho .role{display:block;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--color-neutral-500);white-space:nowrap;max-width:min(200px,28vw);overflow:hidden;text-overflow:ellipsis}
 .mano-tag{font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:var(--color-accent-200);
   border:1px solid color-mix(in srgb, var(--color-accent-400) 45%, transparent);padding:3px 8px;border-radius:999px}
 .hand{position:relative;display:flex;padding-left:calc(var(--rival-w, 55px) * var(--hand-overlap));min-height:calc(var(--rival-w, 55px) * var(--card-ratio));flex:0 0 auto}
 .hand .slot{margin-left:calc(var(--rival-w, 55px) * var(--hand-overlap) * -1)}
 .me .mywho{display:flex;align-items:center;gap:var(--space-3);flex:0 0 auto}
 .me .mywho .avatar{width:39px;height:39px}
-.me .mywho .name{font-family:var(--font-heading);font-size:15px}
-.me .mywho .role{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--color-neutral-500)}
+.me .mywho .avatar img{width:22px;height:22px}
+.me .mywho .name{font-size:15px}
 .me .myrow{display:flex;align-items:center;justify-content:center;gap:clamp(21px,3vw,55px);flex-wrap:wrap;width:min(100%,890px)}
 .say{min-height:21px;display:flex;justify-content:center;text-align:center;max-width:240px}
 .say .thinkingtxt{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--color-neutral-500);animation:breathe 1.2s ease-in-out infinite}
@@ -616,8 +616,15 @@ const FAMILIES = [
   [/jev/i,'jev','oklch(0.84 0.09 70)',null],
   [/heuristic|random|offline/i,'offline','var(--color-neutral-400)',null]
 ];
+/* Default table lineup (matches live --seats) so empty chairs still show logos. */
+const DEFAULT_SEATS = ['human', 'glm5.3-flash', 'deepseek-v4-flash', 'qwen3.6'];
+let LAST_SEATS = null;
 function family(name){ const n = String(name || ''); for(const f of FAMILIES) if(f[0].test(n)) return {lab:f[1], color:f[2], icon:f[3] ? ICONS[f[3]] || '' : '', mono:f[3] === 'openai'}; return {lab:'', color:'var(--color-text)', icon:'', mono:false}; }
 const cleanModel = m => String(m || '').replace(/^[a-z]+:/i, '');
+function seatModelHint(seat){
+  const specs = (S && S.config && S.config.seats) || LAST_SEATS || DEFAULT_SEATS;
+  return specs[seat] || '';
+}
 function iconImg(name, size){
   const f = family(name); if(!f.icon) return '';
   return '<img src="' + f.icon + '" alt="" style="width:' + size + 'px;height:' + size + 'px;object-fit:contain' + (f.mono ? ';filter:invert(1)' : '') + '">';
@@ -705,13 +712,18 @@ function syncCardVars(){
 function paintAvatar(avatar, name, f){
   const timer = ensureTimer(avatar);
   avatar.querySelectorAll(':scope > span, :scope > img').forEach(n => n.remove());
-  const span = el('span'); span.style.color = f.color; span.textContent = (name[0] || '?').toUpperCase();
-  avatar.appendChild(span);
+  avatar.classList.toggle('has-icon', !!f.icon);
   if(f.icon){
     const img = document.createElement('img');
-    img.src = f.icon; img.alt = f.lab || '';
+    img.src = f.icon; img.alt = f.lab || name || '';
+    img.width = 20; img.height = 20;
     if(f.mono) img.style.filter = 'invert(1)';
+    if(f.color && f.color.startsWith('oklch')) avatar.style.borderColor = f.color;
     avatar.appendChild(img);
+  } else {
+    const span = el('span'); span.style.color = f.color; span.textContent = (name[0] || '?').toUpperCase();
+    avatar.style.borderColor = '';
+    avatar.appendChild(span);
   }
   if(timer) avatar.appendChild(timer);
 }
@@ -719,12 +731,15 @@ function paintAvatar(avatar, name, f){
 function renderSeat(area){
   const E = seatEls[area], seat = seatAt(area);
   const s = S ? S.seats[seat] : null;
-  if(!s){ // placeholder before a game exists
-    const sig = 'empty' + rivalCardW();
-    if(E.sig !== sig){ E.sig = sig; paintAvatar(E.avatar, '·', {color:'var(--color-neutral-500)', icon:'', mono:false, lab:''});
-      E.avatar.querySelector('span').textContent = '·';
+  if(!s){ // placeholder before a game exists — still show provider marks
+    const key = seatModelHint(seat), f = family(key);
+    const sig = 'empty|' + key + '|' + rivalCardW() + '|' + (f.icon ? '1' : '0');
+    if(E.sig !== sig){ E.sig = sig;
+      paintAvatar(E.avatar, f.lab || '·', f.icon ? f : {color:'var(--color-neutral-500)', icon:'', mono:false, lab:''});
+      if(!f.icon){ const sp = E.avatar.querySelector(':scope > span'); if(sp) sp.textContent = '·'; }
       E.name.textContent = area === 'top' ? 'compañero' : 'rival';
-      E.name.style.color = 'var(--color-neutral-500)'; E.role.textContent = 'por sentarse';
+      E.name.style.color = f.color || 'var(--color-neutral-500)';
+      E.role.textContent = f.lab ? (f.lab + ' · por sentarse') : 'por sentarse';
       E.hand.querySelectorAll('.slot').forEach(n => n.remove());
       for(let i = 0; i < 4; i++){ const sl = el('div','slot'); sl.appendChild(cardNode(null, rivalCardW())); E.hand.appendChild(sl); }
       E.hand.style.opacity = .35; }
@@ -1128,6 +1143,7 @@ function applySnapshot(d){
   const first = !S;
   needNew = false;
   prevSnap = S; S = d; lastVersion = d.version;
+  if(S.config && S.config.seats) LAST_SEATS = S.config.seats.slice();
   setStatus('live');
   // end-of-hand reveal → recap window
   if(S.reveal && S.reveal.hand !== lastRevealHand){
