@@ -128,7 +128,7 @@ nav.views a:hover{color:var(--color-accent-200)}
 .who{display:flex;align-items:center;gap:10px}
 .avatar{position:relative;width:30px;height:30px;flex:0 0 auto;border-radius:50%;border:1px solid var(--color-neutral-800);
   display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-size:12px;transition:box-shadow .3s;background:#000}
-.avatar img{position:absolute;left:6px;top:6px;width:18px;height:18px;object-fit:contain}
+.avatar img{width:18px;height:18px;object-fit:contain;display:block}
 .who .nm{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0}
 .who .name{font-family:var(--font-heading);font-size:14px;opacity:.85;transition:opacity .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
 .seat.thinking .name{opacity:1}
@@ -699,8 +699,9 @@ function renderSeat(area){
   E.avatar.style.boxShadow = s.thinking ? '0 0 0 3px color-mix(in srgb, ' + f.color + ' 22%, transparent), 0 0 16px ' + f.color : 'none';
   const head = name + '|' + key;
   if(E.head !== head){ E.head = head;
-    E.avatar.innerHTML = '<span style="color:' + f.color + '">' + esc((name[0] || '?').toUpperCase()) + '</span>' +
-      (f.icon ? '<img src="' + f.icon + '" alt="' + esc(f.lab) + '"' + (f.mono ? ' style="filter:invert(1)"' : '') + '>' : '');
+    E.avatar.innerHTML = f.icon
+      ? '<img src="' + f.icon + '" alt="' + esc(f.lab) + '"' + (f.mono ? ' style="filter:invert(1)"' : '') + '>'
+      : '<span style="color:' + f.color + '">' + esc((name[0] || '?').toUpperCase()) + '</span>';
     E.name.textContent = name; E.name.style.color = f.color; E.name.title = s.model || '';
   }
   const decl = s.declared === true ? (S.lance ? 'con ' + S.lance.toLowerCase() : 'tengo') : s.declared === false ? (S.lance ? 'sin ' + S.lance.toLowerCase() : 'no tengo') : '';
