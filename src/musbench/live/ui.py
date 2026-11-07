@@ -245,32 +245,6 @@ nav.views a:hover{color:var(--color-accent-200)}
 .linkbtn:hover{color:var(--color-neutral-300)}
 .err{font-size:13px;color:var(--color-danger);min-height:0;text-align:center}
 
-/* log aside */
-aside.log{width:330px;flex:0 0 330px;border-left:1px solid var(--color-neutral-900);display:flex;flex-direction:column;min-height:0;max-height:calc(100dvh - 120px);position:sticky;top:64px}
-.tabs{display:flex;gap:var(--space-6);padding:var(--space-4) var(--space-6) 0;border-bottom:1px solid var(--color-neutral-900)}
-.tabs button{background:none;border:none;border-bottom:1px solid transparent;padding:6px 0 10px;cursor:pointer;font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--color-neutral-500)}
-.tabs button.on{color:var(--color-text);border-bottom-color:var(--color-neutral-500)}
-.pane{display:none;flex:1;min-height:0;overflow:auto;padding:var(--space-4) var(--space-6)}
-.pane.on{display:block}
-.feed{display:flex;flex-direction:column;gap:7px;font-size:13px;line-height:1.45}
-.feed .r{display:flex;gap:8px;animation:rise .4s ease both}
-.feed .r .w{font-family:var(--font-heading);white-space:nowrap}
-.feed .r .tx{color:var(--color-neutral-100);min-width:0;overflow-wrap:anywhere}
-.feed .r.sys .tx{color:var(--color-neutral-500);font-style:italic}
-.feed .r.newhand{margin-top:8px;padding-top:8px;border-top:1px solid var(--color-neutral-900)}
-.feed .r.hot .tx{color:var(--color-accent-200);font-style:normal}
-.feed .r.bad .tx{color:var(--color-danger)}
-.say-in{display:flex;gap:8px;padding:var(--space-4) var(--space-6);border-top:1px solid var(--color-neutral-900)}
-.say-in input{flex:1;min-width:0;background:none;border:none;border-bottom:1px solid var(--color-neutral-800);color:var(--color-text);font-size:13px;padding:6px 0;outline:none}
-.say-in input:focus{border-bottom-color:var(--color-accent-300)}
-.senas{display:grid;grid-template-columns:1fr;gap:6px}
-.senas button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:none;border:1px solid var(--color-neutral-900);border-radius:var(--radius-md);
-  padding:8px 12px;cursor:pointer;text-align:left;transition:border-color .2s}
-.senas button:hover{border-color:var(--color-accent-600)}
-.senas .g{font-family:var(--font-heading);font-size:13px}
-.senas .m{font-size:12px;color:var(--color-neutral-500)}
-.lead{font-size:12px;color:var(--color-neutral-500);line-height:1.6;margin:0 0 var(--space-4)}
-
 /* ── reglamento ── */
 .hero{min-height:92vh;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));align-items:end;gap:var(--space-8);
   padding:120px var(--gutter) clamp(40px,6vh,72px)}
@@ -348,8 +322,6 @@ footer.foot a{color:var(--color-neutral-400)}
 /* ── phones ── */
 @media (max-width:980px){
   .mesa-body{flex-direction:column}
-  aside.log{width:auto;flex:none;border-left:none;border-top:1px solid var(--color-neutral-900);max-height:none;position:static}
-  .pane{max-height:46vh}
 }
 @media (max-width:720px){
   header.top{gap:var(--space-4);padding:14px 16px;flex-wrap:wrap;background:#000;border-bottom:1px solid var(--color-neutral-900)}
@@ -443,23 +415,6 @@ footer.foot a{color:var(--color-neutral-400)}
         </div>
       </div>
     </div>
-    <aside class="log" aria-label="Cante y señas">
-      <div class="tabs" role="tablist">
-        <button class="on" data-p="feed" role="tab" aria-selected="true">Cante</button>
-        <button data-p="senas" role="tab" aria-selected="false">Señas</button>
-      </div>
-      <div class="pane on" id="pane-feed" role="tabpanel"><div class="feed" id="feed"></div></div>
-      <div class="pane" id="pane-senas" role="tabpanel">
-        <p class="lead">Gestos reglamentarios, de significado fijo. Tu compañero los lee en su
-          próxima decisión; los rivales pueden pillarlos.</p>
-        <div class="senas" id="senagrid"></div>
-        <div id="mysenas" style="margin-top:14px"></div>
-      </div>
-      <div class="say-in">
-        <input id="chatin" maxlength="120" placeholder="habla en la mesa (sin cantar cartas)…" aria-label="Mensaje para la mesa">
-        <button class="ghost" id="chatgo">Decir</button>
-      </div>
-    </aside>
   </div>
 </section>
 
@@ -1005,17 +960,11 @@ function feedRow(ev){
 }
 function chatText(t){ const m = String(t).match(/^[^:]*:\s*"([\s\S]*)"\s*$/); return m ? m[1] : String(t).replace(/^[^:]*:\s*/, ''); }
 function renderFeed(reset){
-  const F = $('feed'), pane = $('pane-feed');
-  const atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40;
-  if(reset){ F.replaceChildren(); feedLast = -1; if(NOTE) F.appendChild(el('div', 'r sys hot', '<span class="tx">' + esc(NOTE) + '</span>')); }
-  const evs = (S.feed || []).filter(e => e.i > feedLast);
+  // The cante panel is gone; we only advance feedLast so animate() still runs.
+  if(reset) feedLast = -1;
+  const evs = ((S && S.feed) || []).filter(e => e.i > feedLast);
   if(!evs.length) return;
-  const frag = document.createDocumentFragment();
-  evs.forEach(ev => { const r = feedRow(ev); if(r) frag.appendChild(r); });
   feedLast = evs[evs.length - 1].i;
-  F.appendChild(frag);
-  while(F.childElementCount > 220) F.firstElementChild.remove();
-  if(atBottom || reset) pane.scrollTop = pane.scrollHeight;
 }
 
 /* ── animations driven by new events ── */
@@ -1096,27 +1045,7 @@ function animate(evs){
   });
 }
 
-/* ── señas ── */
-let senasBuilt = false;
-function renderSenas(){
-  const vocab = (S && S.senas_vocab) || null;
-  if(vocab && !senasBuilt){
-    senasBuilt = true;
-    const g = $('senagrid'); g.replaceChildren();
-    Object.entries(vocab).forEach(([k, m]) => {
-      const b = el('button', '', '<span class="g">' + esc(k.replace(/-/g, ' ')) + '</span><span class="m">' + esc(m) + '</span>');
-      b.onclick = () => post('/api/sena', {gesture:k}).then(d => { if(!d.ok) flash(d.error || 'seña rechazada'); else speak('me', k.replace(/-/g, ' '), 'gest'); });
-      g.appendChild(b);
-    });
-    buildSenaGuide(vocab);
-  }
-  const mine = (S && S.you && S.you.my_senas) || [];
-  const sig = mine.map(s => s.gesture + s.truthful).join(',');
-  if($('mysenas').dataset.sig !== sig){ $('mysenas').dataset.sig = sig;
-    $('mysenas').innerHTML = mine.length ? '<div class="eyebrow" style="margin-bottom:6px">Tus señas</div>' + mine.map(s =>
-      '<div style="font-size:12px;color:var(--color-neutral-400)">' + esc(s.gesture.replace(/-/g, ' ')) + (s.truthful ? ' · veraz' : ' · farol') + '</div>').join('') : '';
-  }
-}
+/* ── señas (reglamento guide only) ── */
 function buildSenaGuide(vocab){
   const box = $('d-senas'); if(!box || box.childElementCount) return;
   Object.entries(vocab).forEach(([k, m]) => box.appendChild(el('div', '', '<b>' + esc(k.replace(/-/g, ' ')) + '</b><span>' + esc(m) + '</span>')));
@@ -1153,7 +1082,6 @@ function render(){
   ['left','top','right'].forEach(renderSeat);
   if(S) renderMe(); else { seatEls.me.sig = null; seatEls.me.head = null; renderMeEmpty(); }
   renderCenter();
-  if(S) renderSenas();
   $('newvaca').hidden = !S || !SID;
   if(!timerRaf) timerRaf = requestAnimationFrame(tickTimers);
 }
@@ -1170,7 +1098,7 @@ function renderMeEmpty(){
 
 function applySnapshot(d){
   if(!d) return;
-  if(d.need_new){ if(S || !needNew){ needNew = true; S = null; prevSnap = null; feedLast = -1; $('feed').replaceChildren(); render(); } setStatus('idle'); return; }
+  if(d.need_new){ if(S || !needNew){ needNew = true; S = null; prevSnap = null; feedLast = -1; render(); } setStatus('idle'); return; }
   if(typeof d.version !== 'number' || d.version === lastVersion) return;
   const first = !S;
   needNew = false;
@@ -1221,22 +1149,11 @@ function startGame(){
     NOTE = d.message || '';
     store.set('mus.game', (SID || 'local') + ':' + Date.now());
     lastVersion = -1; feedLast = -1; animLast = null; lastRevealHand = null; recap = null; S = null; prevSnap = null;
-    $('feed').replaceChildren(); centerSig = null;
-    if(NOTE) $('feed').appendChild(el('div', 'r sys hot', '<span class="tx">' + esc(NOTE) + '</span>'));
+    centerSig = null;
     connect(); poll();
   }).catch(() => { NOTE = 'la mesa no responde; prueba en un momento'; centerSig = null; render(); if(b) b.disabled = false; });
 }
 $('newvaca').onclick = startGame;
-$('chatgo').onclick = () => {
-  const v = $('chatin').value.trim(); if(!v) return;
-  if(!S){ flash('siéntate primero'); return; }
-  post('/api/chat', {text:v}).then(d => { if(d.ok) $('chatin').value = ''; else flash(d.error || 'no se pudo decir'); });
-};
-$('chatin').addEventListener('keydown', e => { if(e.key === 'Enter') $('chatgo').onclick(); });
-document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('.tabs button').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-selected', String(x === b)); });
-  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + b.dataset.p));
-});
 let rsz = null;
 addEventListener('resize', () => { clearTimeout(rsz); rsz = setTimeout(() => { Object.values(seatEls).forEach(E => E.sig = null); seatEls.me.hand.querySelectorAll('.mycard').forEach(n => n.remove()); render(); }, 200); });
 
