@@ -123,19 +123,33 @@ nav.views a:hover{color:var(--color-accent-200)}
   grid-template-rows:auto 1fr auto;grid-template-areas:'. top .' 'left center right' 'you you you';
   gap:var(--space-4);align-items:center;justify-items:center;min-height:560px}
 
-.seat{display:flex;flex-direction:column;align-items:center;gap:10px;min-width:0}
-.seat[data-area=left]{grid-area:left}.seat[data-area=top]{grid-area:top}.seat[data-area=right]{grid-area:right}
+.seat{display:flex;flex-direction:row;align-items:center;gap:14px;min-width:0}
+.seat[data-area=left]{grid-area:left}.seat[data-area=top]{grid-area:top}.seat[data-area=right]{grid-area:right;flex-direction:row-reverse}
+.seat .meta{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:0}
+.seat.is-mano .meta{gap:6px}
 .who{display:flex;align-items:center;gap:10px}
-.avatar{position:relative;width:30px;height:30px;flex:0 0 auto;border-radius:50%;border:1px solid var(--color-neutral-800);
+.avatar{position:relative;width:34px;height:34px;flex:0 0 auto;border-radius:50%;border:1px solid var(--color-neutral-800);
   display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-size:12px;transition:box-shadow .3s;background:#000}
-.avatar img{position:absolute;inset:0;margin:auto;width:18px;height:18px;object-fit:contain;display:block}
+.avatar img{position:absolute;inset:0;margin:auto;width:18px;height:18px;object-fit:contain;display:block;z-index:1}
 .avatar:has(img) > span{display:none}
+.avatar > span{position:relative;z-index:1}
+.avatar .timer{position:absolute;inset:-5px;width:calc(100% + 10px);height:calc(100% + 10px);transform:rotate(-90deg);pointer-events:none;z-index:2}
+.avatar .timer circle{fill:none;stroke-width:2.4;stroke-linecap:round}
+.avatar .timer .track{stroke:var(--color-neutral-800)}
+.avatar .timer .arc{stroke:var(--color-accent-300);transition:stroke .2s}
+.avatar .timer.urgent .arc{stroke:var(--color-accent-100)}
 .who .nm{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0}
 .who .name{font-family:var(--font-heading);font-size:14px;opacity:.85;transition:opacity .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
 .seat.thinking .name{opacity:1}
 .who .role{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--color-neutral-500);white-space:nowrap}
-.hand{position:relative;display:flex;padding-left:24px;min-height:98px}
+.mano-tag{font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:var(--color-accent-200);
+  border:1px solid color-mix(in srgb, var(--color-accent-400) 45%, transparent);padding:3px 8px;border-radius:999px}
+.hand{position:relative;display:flex;padding-left:24px;min-height:98px;flex:0 0 auto}
 .hand .slot{margin-left:-24px}
+.me .mywho{display:flex;align-items:center;gap:12px;flex:0 0 auto}
+.me .mywho .avatar{width:36px;height:36px}
+.me .mywho .name{font-family:var(--font-heading);font-size:15px}
+.me .myrow{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;width:100%}
 .say{min-height:24px;display:flex;justify-content:center;text-align:center;max-width:240px}
 .say .thinkingtxt{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--color-neutral-500);animation:breathe 1.2s ease-in-out infinite}
 .say .line{font-size:15px;line-height:1.35;color:var(--color-neutral-100);font-style:italic;animation:speak 3.6s ease forwards;text-wrap:balance}
@@ -349,10 +363,14 @@ footer.foot a{color:var(--color-neutral-400)}
   .felt .oval{inset:6% 2%}
   .grid{grid-template-columns:1fr 1fr;grid-template-rows:auto auto auto auto;
     grid-template-areas:'top top' 'left right' 'center center' 'you you';min-height:0;gap:var(--space-6) var(--space-3)}
+  .seat{gap:8px}
+  .seat[data-area=top]{flex-direction:column}
   .hand{padding-left:16px;min-height:61px}
   .hand .slot{margin-left:-16px}
   .who .name{max-width:120px;font-size:13px}
   .who .role{letter-spacing:.12em;font-size:9px}
+  .avatar{width:30px;height:30px}
+  .avatar .timer{inset:-4px;width:calc(100% + 8px);height:calc(100% + 8px)}
   .center{min-height:110px}
   .center .ln{font-size:38px}
   .myhand{gap:8px;min-height:116px}
@@ -411,7 +429,13 @@ footer.foot a{color:var(--color-neutral-400)}
         <div class="seat" data-area="right" id="seat-right"></div>
         <div class="center" id="center"></div>
         <div class="you me" id="you">
-          <div class="myhand" id="myhand"><div class="fxlayer" id="myfx"></div></div>
+          <div class="myrow">
+            <div class="mywho" id="mywho">
+              <div class="avatar" id="myavatar"><span>·</span></div>
+              <div class="nm"><span class="name" id="myname"></span><span class="role" id="myrole"></span></div>
+            </div>
+            <div class="myhand" id="myhand"><div class="fxlayer" id="myfx"></div></div>
+          </div>
           <div class="say" id="mysay"></div>
           <div class="myinfo" id="myinfo"></div>
           <div class="err" id="err" role="alert"></div>
@@ -663,15 +687,34 @@ function displayName(seat){
 function modelKey(seat){ const s = S && S.seats[seat]; return s ? (s.is_llm ? s.model : s.model || s.name) : ''; }
 
 /* ═════════ RENDER: mesa ═════════ */
+const TIMER_SVG = '<svg class="timer" viewBox="0 0 36 36" aria-hidden="true"><circle class="track" cx="18" cy="18" r="16"></circle><circle class="arc" cx="18" cy="18" r="16" pathLength="100" stroke-dasharray="100 100" stroke-dashoffset="0"></circle></svg>';
+function ensureTimer(avatar){
+  if(!avatar) return null;
+  let t = avatar.querySelector('.timer');
+  if(!t){ avatar.insertAdjacentHTML('afterbegin', TIMER_SVG); t = avatar.querySelector('.timer'); }
+  return t;
+}
+function setTimer(avatar, frac, urgent){
+  const t = ensureTimer(avatar); if(!t) return;
+  const arc = t.querySelector('.arc');
+  const f = Math.max(0, Math.min(1, frac == null ? 0 : frac));
+  arc.setAttribute('stroke-dashoffset', String((1 - f) * 100));
+  t.classList.toggle('urgent', !!urgent);
+  t.style.opacity = frac == null ? '0' : '1';
+}
+
 const seatEls = {};
 ['left','top','right'].forEach(a => {
   const root = $('seat-' + a);
-  root.innerHTML = '<div class="who"><div class="avatar"></div><div class="nm"><span class="name"></span><span class="role"></span></div></div>' +
-    '<div class="hand"><div class="fxlayer"></div></div><div class="say"></div>';
+  root.innerHTML = '<div class="meta"><div class="who"><div class="avatar"></div><div class="nm"><span class="name"></span><span class="role"></span></div></div>' +
+    '<div class="say"></div></div><div class="hand"><div class="fxlayer"></div></div>';
   seatEls[a] = {root, avatar:root.querySelector('.avatar'), name:root.querySelector('.name'), role:root.querySelector('.role'),
     hand:root.querySelector('.hand'), fx:root.querySelector('.fxlayer'), say:root.querySelector('.say'), sig:null, speech:null};
+  ensureTimer(seatEls[a].avatar);
 });
-seatEls.me = {root:$('you'), hand:$('myhand'), fx:$('myfx'), say:$('mysay'), sig:null, speech:null};
+seatEls.me = {root:$('you'), avatar:$('myavatar'), name:$('myname'), role:$('myrole'),
+  hand:$('myhand'), fx:$('myfx'), say:$('mysay'), sig:null, speech:null};
+ensureTimer(seatEls.me.avatar);
 
 let selected = new Set();
 let recap = null;          // {hand, until, data}
@@ -680,39 +723,56 @@ let lastRevealHand = null;
 function rivalCardW(){ return innerWidth < 720 ? 40 : 64; }
 function myCardW(){ return innerWidth < 420 ? 72 : innerWidth < 720 ? 80 : 96; }
 
+function paintAvatar(avatar, name, f){
+  const timer = ensureTimer(avatar);
+  avatar.querySelectorAll(':scope > span, :scope > img').forEach(n => n.remove());
+  const span = el('span'); span.style.color = f.color; span.textContent = (name[0] || '?').toUpperCase();
+  avatar.appendChild(span);
+  if(f.icon){
+    const img = document.createElement('img');
+    img.src = f.icon; img.alt = f.lab || '';
+    if(f.mono) img.style.filter = 'invert(1)';
+    avatar.appendChild(img);
+  }
+  if(timer) avatar.appendChild(timer);
+}
+
 function renderSeat(area){
   const E = seatEls[area], seat = seatAt(area);
   const s = S ? S.seats[seat] : null;
   if(!s){ // placeholder before a game exists
     const sig = 'empty' + rivalCardW();
-    if(E.sig !== sig){ E.sig = sig; E.avatar.innerHTML = '<span>·</span>'; E.name.textContent = area === 'top' ? 'compañero' : 'rival';
-      E.name.style.color = 'var(--color-neutral-500)'; E.role.textContent = area === 'top' ? 'por sentarse' : 'por sentarse';
+    if(E.sig !== sig){ E.sig = sig; paintAvatar(E.avatar, '·', {color:'var(--color-neutral-500)', icon:'', mono:false, lab:''});
+      E.avatar.querySelector('span').textContent = '·';
+      E.name.textContent = area === 'top' ? 'compañero' : 'rival';
+      E.name.style.color = 'var(--color-neutral-500)'; E.role.textContent = 'por sentarse';
       E.hand.querySelectorAll('.slot').forEach(n => n.remove());
       for(let i = 0; i < 4; i++){ const sl = el('div','slot'); sl.appendChild(cardNode(null, rivalCardW())); E.hand.appendChild(sl); }
       E.hand.style.opacity = .35; }
-    E.root.classList.remove('thinking'); E.avatar.style.boxShadow = 'none';
+    E.root.classList.remove('thinking', 'is-mano'); setTimer(E.avatar, null);
+    E.avatar.style.boxShadow = 'none';
     return;
   }
   E.hand.style.opacity = '';
   const name = displayName(seat), key = modelKey(seat), f = family(key);
   const partner = s.team === myTeam();
+  const isMano = S.mano === seat;
   E.root.classList.toggle('thinking', !!s.thinking);
+  E.root.classList.toggle('is-mano', isMano);
   E.avatar.style.boxShadow = s.thinking ? '0 0 0 3px color-mix(in srgb, ' + f.color + ' 22%, transparent), 0 0 16px ' + f.color : 'none';
   const head = name + '|' + key + '|' + (f.icon ? '1' : '0');
   if(E.head !== head){ E.head = head;
-    // Letter only as fallback; CSS hides it when the provider img is present.
-    E.avatar.innerHTML = '<span style="color:' + f.color + '">' + esc((name[0] || '?').toUpperCase()) + '</span>' +
-      (f.icon ? '<img src="' + f.icon + '" alt="' + esc(f.lab) + '"' + (f.mono ? ' style="filter:invert(1)"' : '') + '>' : '');
+    paintAvatar(E.avatar, name, f);
     E.name.textContent = name; E.name.style.color = f.color; E.name.title = s.model || '';
   }
   const decl = s.declared === true ? (S.lance ? 'con ' + S.lance.toLowerCase() : 'tengo') : s.declared === false ? (S.lance ? 'sin ' + S.lance.toLowerCase() : 'no tengo') : '';
-  E.role.textContent = [partner ? 'compañero' : 'rival', f.lab, S.mano === seat ? 'mano' : '', s.folded ? 'fuera' : '', decl].filter(Boolean).join(' · ');
-  // cards: back, director view, or the end-of-hand reveal
+  E.role.textContent = [partner ? 'compañero' : 'rival', f.lab, isMano ? 'mano' : '', s.folded ? 'fuera' : '', decl].filter(Boolean).join(' · ');
+  // cards sit to the right of the player (left of the right-side seat via row-reverse)
   let cards = null, mode = 'back';
   const rv = recapShowing() ? recap.data : null;
   if(rv && rv.hands && rv.hands[seat]){ cards = rv.hands[seat].map(parseCard); mode = 'rev' + rv.hand; }
   else if(S.director && s.hand && s.hand.length){ cards = s.hand.map(parseCard); mode = 'dir'; }
-  const sig = mode + '|' + (cards ? cards.map(c => c ? c.s + c.r : '?').join(',') : '') + '|' + S.scores.hands_played + '|' + rivalCardW();
+  const sig = mode + '|' + (cards ? cards.map(c => c ? c.s + c.r : '?').join(',') : '') + '|' + S.scores.hands_played + '|' + rivalCardW() + '|' + (isMano ? 'm' : '');
   if(E.sig !== sig){
     const dealing = !E.sig || E.sig.split('|')[2] !== String(S.scores.hands_played);
     E.sig = sig;
@@ -758,8 +818,18 @@ function renderMe(){
     if(discard){ w.tabIndex = 0; w.setAttribute('role','button'); w.setAttribute('aria-pressed', String(selected.has(w.dataset.card))); }
     else { w.removeAttribute('tabindex'); w.removeAttribute('role'); w.removeAttribute('aria-pressed'); }
   });
-  $('myinfo').textContent = hand.length ? [NICK || 'tú', paresOf(hand), (sumOf(hand) >= 31 ? 'juego ' : 'punto ') + sumOf(hand),
-    S.mano === mySeat() ? 'mano' : ''].filter(Boolean).join(' · ') : '';
+  const meName = NICK || 'tú';
+  const meKey = S && S.seats[mySeat()] ? modelKey(mySeat()) : 'human';
+  const f = family(meKey);
+  const isMano = !!(S && S.mano === mySeat());
+  const head = meName + '|' + (f.icon ? '1' : '0') + '|' + isMano;
+  if(E.head !== head){ E.head = head;
+    paintAvatar(E.avatar, meName, f.icon ? f : {color:'var(--color-accent-200)', icon:'', mono:false, lab:''});
+    E.name.textContent = meName; E.name.style.color = f.color || 'var(--color-accent-200)';
+  }
+  E.role.textContent = ['tú', isMano ? 'mano' : '', hand.length ? paresOf(hand) : '',
+    hand.length ? ((sumOf(hand) >= 31 ? 'juego ' : 'punto ') + sumOf(hand)) : ''].filter(Boolean).join(' · ');
+  $('myinfo').textContent = '';
   $('err').textContent = S && S.you && S.you.error ? 'Acción rechazada: ' + S.you.error : '';
   renderButtons(legal);
 }
@@ -1051,18 +1121,47 @@ function buildSenaGuide(vocab){
   Object.entries(vocab).forEach(([k, m]) => box.appendChild(el('div', '', '<b>' + esc(k.replace(/-/g, ' ')) + '</b><span>' + esc(m) + '</span>')));
 }
 
+/* ── turn timer ring ── */
+let timerRaf = 0;
+function tickTimers(){
+  timerRaf = 0;
+  const areas = ['left','top','right','me'];
+  const active = S && S.turn_seat != null ? S.turn_seat : null;
+  const deadline = S && S.turn_deadline ? Number(S.turn_deadline) : null;
+  const total = S && S.turn_timeout ? Number(S.turn_timeout) : null;
+  let need = false;
+  areas.forEach(a => {
+    const E = seatEls[a]; if(!E || !E.avatar) return;
+    const seat = a === 'me' ? mySeat() : seatAt(a);
+    if(active == null || seat !== active || deadline == null || !total){
+      setTimer(E.avatar, null);
+      return;
+    }
+    const left = deadline - (Date.now() / 1000);
+    const frac = Math.max(0, Math.min(1, left / total));
+    setTimer(E.avatar, frac, frac < 0.2);
+    if(left > 0) need = true;
+  });
+  if(need) timerRaf = requestAnimationFrame(tickTimers);
+}
+
 /* ── main render ── */
 let prevSnap = null;
 function render(){
   renderScore(); renderLineup();
   ['left','top','right'].forEach(renderSeat);
-  if(S) renderMe(); else { seatEls.me.sig = null; renderMeEmpty(); }
+  if(S) renderMe(); else { seatEls.me.sig = null; seatEls.me.head = null; renderMeEmpty(); }
   renderCenter();
   if(S) renderSenas();
   $('newvaca').hidden = !S || !SID;
+  if(!timerRaf) timerRaf = requestAnimationFrame(tickTimers);
 }
 function renderMeEmpty(){
   const E = seatEls.me;
+  paintAvatar(E.avatar, NICK || 'tú', {color:'var(--color-neutral-500)', icon:'', mono:false, lab:''});
+  if(E.name){ E.name.textContent = NICK || 'tú'; E.name.style.color = 'var(--color-neutral-500)'; }
+  if(E.role) E.role.textContent = 'por sentarse';
+  setTimer(E.avatar, null);
   if(E.hand.querySelector('.mycard')) return;
   for(let i = 0; i < 4; i++){ const w = el('div', 'mycard'); w.appendChild(cardNode(null, myCardW())); w.style.opacity = .3; E.hand.appendChild(w); }
   $('myinfo').textContent = ''; $('btns').replaceChildren(); btnSig = null;

@@ -198,6 +198,45 @@ class TestTableFeedForUI(unittest.TestCase):
         ok, err = g.submit_human_action(0, {"action": "mus"})
         self.assertFalse(ok)
 
+    def test_turn_clock_exposed_while_human_decides(self):
+        g = LiveGame(["human", "heuristic", "heuristic", "heuristic"],
+                     hands=1, seed=9)
+        g.engine.deal()
+        seat0 = g.human_agents[0]
+        ready = threading.Event()
+
+        def act_later():
+            ready.wait(timeout=2)
+            time.sleep(0.05)
+            seat0.inbox.put({"action": "__default__"})
+
+        threading.Thread(target=act_later, daemon=True).start()
+
+        def watch():
+            # wait until the turn clock is armed, then let the human act
+            deadline = time.time() + 2
+            while time.time() < deadline:
+                if g.turn_seat == 0 and g.turn_deadline:
+                    snap = g.snapshot(seat0.token)
+                    self.assertEqual(snap["turn_seat"], 0)
+                    self.assertEqual(snap["turn_timeout"], live_server.HUMAN_TURN_TIMEOUT)
+                    self.assertGreater(snap["turn_deadline"], time.time())
+                    ready.set()
+                    return
+                time.sleep(0.01)
+            ready.set()
+            self.fail("turn clock never armed")
+
+        watcher = threading.Thread(target=watch, daemon=True)
+        watcher.start()
+        g._human_turn(seat0, list(g.engine.hands[0]))
+        watcher.join(timeout=3)
+        self.assertIsNone(g.turn_seat)
+        self.assertIsNone(g.turn_deadline)
+        snap = g.snapshot(seat0.token)
+        self.assertIsNone(snap["turn_seat"])
+        self.assertIsNone(snap["turn_deadline"])
+
     def test_mus_and_envite_events_carry_action(self):
         g = run_scripted(make_game(hands=2, seed=5))
         mus = [e for e in g.events if e["kind"] == "mus"]

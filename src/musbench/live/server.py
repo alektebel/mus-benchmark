@@ -124,11 +124,29 @@ class LiveGame:
         self.error: str | None = None
         self.stats = {"turns": 0, "llm_turns": 0, "fallbacks": 0}
         self.thinking_seat: int | None = None
+        # wall-clock turn clock for the seat currently deciding (human or LLM)
+        self.turn_seat: int | None = None
+        self.turn_timeout: float | None = None
+        self.turn_deadline: float | None = None  # time.time() seconds
         self.stopped = threading.Event()
         self.thread: threading.Thread | None = None
         self.hands_played = 0
         self.last_delivered: list = []
         self.human_error: dict[int, str] = {}
+
+    def _begin_turn_clock(self, seat: int, timeout: float) -> None:
+        self.turn_seat = seat
+        self.turn_timeout = float(timeout)
+        self.turn_deadline = time.time() + float(timeout)
+        self.touch()
+
+    def _end_turn_clock(self) -> None:
+        if self.turn_seat is None and self.turn_deadline is None:
+            return
+        self.turn_seat = None
+        self.turn_timeout = None
+        self.turn_deadline = None
+        self.touch()
 
     # ------------- versioning & event feed -------------
     def touch(self):
@@ -329,14 +347,14 @@ class LiveGame:
         legal = self.engine.legal_actions(seat)
         error = self.human_error.pop(seat, None)
         self.pending_human = {"seat": seat, "legal": legal, "error": error}
-        self.touch()
+        self._begin_turn_clock(seat, HUMAN_TURN_TIMEOUT)
         try:
             self._human_wait(agent, hand, seat)
         finally:
             # the turn is over: stop advertising legal actions (a stale click
             # would otherwise be queued and applied on this seat's next turn)
             self.pending_human = None
-            self.touch()
+            self._end_turn_clock()
 
     def _human_wait(self, agent: HumanSeat, hand, seat: int) -> None:
         deadline = time.monotonic() + HUMAN_TURN_TIMEOUT
@@ -518,9 +536,13 @@ class LiveGame:
         if agent.is_llm:
             self.stats["llm_turns"] += 1
             self.thinking_seat = seat
-            self.touch()
-            self._llm_turn(agent, hand)
-            self.thinking_seat = None
+            llm_timeout = float(os.environ.get("NAN_TIMEOUT", "180"))
+            self._begin_turn_clock(seat, llm_timeout)
+            try:
+                self._llm_turn(agent, hand)
+            finally:
+                self.thinking_seat = None
+                self._end_turn_clock()
         elif isinstance(agent, HumanSeat):
             self._human_turn(agent, hand)
             if self.stopped.is_set():
@@ -657,6 +679,9 @@ class LiveGame:
             "turn": engine.current_seat,
             "mus_round": engine.mus_rounds,
             "thinking_seat": self.thinking_seat,
+            "turn_seat": self.turn_seat,
+            "turn_timeout": self.turn_timeout,
+            "turn_deadline": self.turn_deadline,
             "seats": seats,
             "scores": {"points_a": engine.points_a,
                        "points_b": engine.points_b,
