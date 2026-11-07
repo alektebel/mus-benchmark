@@ -790,8 +790,10 @@ class LiveTable:
             self.epoch += 1
             if hands is not None and hands > 0:
                 self.hands = hands
-            if seed is not None:
-                self.seed = seed
+            # Fresh entropy every vaca unless the caller pins a seed (debug /
+            # replay). Reusing --seed 0 made every public table deal the same
+            # opening hand.
+            self.seed = int(seed) if seed is not None else secrets.randbits(31)
             vl = self.vaca_limit if vaca_limit is None else vaca_limit
             self.game = LiveGame(self.specs, hands=self.hands, seed=self.seed,
                                  vaca_limit=vl, lineup=self.lineup)
@@ -1162,7 +1164,9 @@ def main():
                          "spec (provider:model), or heuristic/random. "
                          "Seats 0+2 are team A, 1+3 team B.")
     ap.add_argument("--hands", type=int, default=12)
-    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--seed", type=int, default=None,
+                    help="pin the first table's deal stream (default: fresh "
+                         "random seed on every nueva vaca)")
     ap.add_argument("--results-dir", default=None,
                     help="directory scanned for bench results "
                          "(summary.json / batch outputs)")
