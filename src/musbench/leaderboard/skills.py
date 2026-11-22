@@ -8,6 +8,8 @@ wrong after the fact, independent of how the hand turned out.
 Skills (each over the model's own, non-automatic decisions):
   fold_accuracy   no-quiero when facing a bet: share of folds of a LOSING lance
   call_accuracy   quiero when facing a bet: share of calls of a WINNING lance
+  read_accuracy   every answer to a rival bet: calls of winning lances plus
+                  folds of losing ones, over all calls and folds
   bluff_rate      bets/raises made from the bottom third of hands
   bluff_success   of those bluffs, share of lances the team then took
   value_rate      bets/raises made from the top third of hands
@@ -32,6 +34,8 @@ PARTNER_RE = re.compile(r"partner|compañer", re.I)
 
 SKILLS = {
     "fold_accuracy": ("Fold accuracy", "%", "of its folds gave up a lance it would have lost"),
+    "read_accuracy": ("Rival read", "%", "of its answers to a rival's bet were right "
+                      "(call a winning lance, fold a losing one)"),
     "call_accuracy": ("Call accuracy", "%", "of its calls were on a lance it would win"),
     "bluff_success": ("Bluff success", "%", "of bets from a weak hand still took the lance"),
     "value_rate": ("Value betting", "%", "of its bets came from a top-third hand"),
@@ -106,6 +110,8 @@ def compute(replays: list[dict]) -> dict[str, dict]:
         r = {
             "moves": int(x["moves"]),
             "fold_accuracy": _ratio(x["fold_ok"], x["fold_n"]), "fold_n": int(x["fold_n"]),
+            "read_accuracy": _ratio(x["fold_ok"] + x["call_ok"], x["fold_n"] + x["call_n"]),
+            "read_n": int(x["fold_n"] + x["call_n"]),
             "call_accuracy": _ratio(x["call_ok"], x["call_n"]), "call_n": int(x["call_n"]),
             "bluff_rate": _ratio(x["bluffs"], x["bets"]),
             "bluff_success": _ratio(x["bluff_won"], x["bluffs"]), "bluff_n": int(x["bluffs"]),

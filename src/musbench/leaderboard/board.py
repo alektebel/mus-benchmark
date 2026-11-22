@@ -44,7 +44,7 @@ text{{font-family:{FONT}}}
 @media (prefers-reduced-motion:reduce){{.rise,.fade{{animation:none}}}}
 </style>"""
 
-SKILL_KEYS = {"fold_accuracy": "fold_n", "call_accuracy": "call_n", "bluff_success": "bluff_n",
+SKILL_KEYS = {"fold_accuracy": "fold_n", "read_accuracy": "read_n", "call_accuracy": "call_n", "bluff_success": "bluff_n",
               "value_rate": "bet_n", "ordago_wins": "ordago_n", "reads": "why_n",
               "partner": "why_n", "lance_Grande": "lance_Grande_n",
               "lance_Chica": "lance_Chica_n", "lance_Pares": "lance_Pares_n",

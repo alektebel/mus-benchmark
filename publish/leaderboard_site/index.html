@@ -141,11 +141,11 @@ tr:last-child td{border-bottom:0}
   <section id="overall">
     <div class="panel">
       <div class="phead">
-        <div><h2>Best overall</h2><div class="sub" id="ov-sub">Elo from mirrored games between models.</div></div>
-        <div class="seg" id="ov-filter" role="group" aria-label="Filter by harness"></div>
+        <div><h2>Leaderboard</h2><div class="sub" id="ov-sub">Elo from mirrored games between models.</div></div>
+        <div class="seg" id="ov-filter" role="group" aria-label="Metric"></div>
       </div>
       <div class="chart" id="ov-chart"></div>
-      <div class="foot"><span id="ov-foot"></span><span>Bars show the fitted Elo; the line marks the start (1000).</span></div>
+      <div class="foot"><span id="ov-foot"></span><span id="ov-note"></span></div>
     </div>
   </section>
 
@@ -189,7 +189,12 @@ tr:last-child td{border-bottom:0}
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const MIN_N = 5;
-let D, harnessFilter = "All";
+let D, metric = "elo";
+const METRICS = [
+  {k:"elo", label:"Elo", sub:"Elo from mirrored games between models.", note:"Bars show the fitted Elo; the dashed line marks the start."},
+  {k:"fold_accuracy", n:"fold_n", label:"Fold intelligence", sub:"Of its folds, the share that gave up a lance it would have lost.", note:"Engine ground truth · higher is better"},
+  {k:"read_accuracy", n:"read_n", label:"Rival read", sub:"Facing a rival's bet: calls on lances it would win plus folds on lances it would lose.", note:"Engine ground truth · higher is better"},
+  {k:"bluff_success", n:"bluff_n", label:"Successful bluffs", sub:"Of its bets from a bottom-third hand, the share that still took the lance.", note:"Engine ground truth · higher is better"}];
 
 const M = id => D.models[id] || {name:id, provider:"", color:"#8a8f9e", harness:""};
 const icon = id => M(id).model_icon || M(id).provider_icon;
@@ -202,35 +207,43 @@ function inkFor(hex){
 }
 const pct = v => v == null ? "—" : (v*100).toFixed(0) + "%";
 const fmtDate = s => { if (!s) return "—"; const d = new Date(s); return isNaN(d) ? s : d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}); };
-function rows(){ return D.leaderboard.filter(r => harnessFilter === "All" || M(r.model).harness === harnessFilter); }
+function rows(){ return D.leaderboard; }
 
-/* ---------- best overall ---------- */
+/* ---------- best overall: Elo or one skill, same chart ---------- */
 function drawOverall(){
-  const hs = ["All", ...new Set(Object.values(D.models).map(m=>m.harness))];
   const f = $("#ov-filter"); f.innerHTML = "";
-  hs.forEach(h => { const b = document.createElement("button"); b.textContent = h; b.setAttribute("aria-pressed", h===harnessFilter);
-    b.onclick = () => { harnessFilter = h; drawOverall(); drawScatter(); }; f.append(b); });
-  const rs = rows().filter(r=>r.games>0).sort((a,b)=>b.elo-a.elo);
-  const W = 1000, H = 330, L = 40, B = 92, T = 24, plotH = H - B - T;
-  if (!rs.length){ $("#ov-chart").innerHTML = `<p class="empty">No games yet for this filter.</p>`; return; }
-  const lo = Math.floor((Math.min(D.start_elo, ...rs.map(r=>r.elo)) - 60)/50)*50;
-  const hi = Math.ceil((Math.max(D.start_elo, ...rs.map(r=>r.elo)) + 30)/50)*50;
+  METRICS.forEach(mt => { const b = document.createElement("button"); b.textContent = mt.label;
+    b.setAttribute("aria-pressed", mt.k===metric); b.onclick = () => { metric = mt.k; drawOverall(); }; f.append(b); });
+  const mt = METRICS.find(x=>x.k===metric), isElo = metric === "elo";
+  $("#ov-sub").textContent = mt.sub; $("#ov-note").textContent = mt.note;
+  const rs = isElo
+    ? D.leaderboard.filter(r=>r.games>0).map(r=>({id:r.model, v:r.elo, tip:`${Math.round(r.elo)} Elo (95% CI ${Math.round(r.ci_low)}–${Math.round(r.ci_high)}) · ${r.games} games · ${r.record}`}))
+    : Object.entries(D.skills).filter(([id,s]) => D.models[id] && s[metric] != null && (s[mt.n]||0) >= MIN_N)
+        .map(([id,s]) => ({id, v:s[metric]*100, tip:`${(s[metric]*100).toFixed(0)}% over ${s[mt.n]} decisions`}));
+  rs.sort((a,b)=>b.v-a.v);
+  const W = 1000, H = 330, L = 44, B = 92, T = 24, plotH = H - B - T;
+  if (!rs.length){ $("#ov-chart").innerHTML = `<p class="empty">Not enough decisions yet.</p>`; $("#ov-foot").textContent = ""; return; }
+  let lo, hi, step;
+  if (isElo){ lo = Math.floor((Math.min(D.start_elo, ...rs.map(r=>r.v)) - 60)/50)*50; hi = Math.ceil((Math.max(D.start_elo, ...rs.map(r=>r.v)) + 30)/50)*50; step = hi-lo > 400 ? 100 : 50; lo = Math.floor(lo/step)*step; }
+  else { lo = 0; hi = 100; step = 20; }
   const y = v => T + plotH - ((v-lo)/(hi-lo))*plotH;
-  const bw = Math.min(56, (W-L-10)/rs.length - 8), step = (W-L-10)/rs.length;
-  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Elo by model">`;
-  for (let v = lo; v <= hi; v += 50){ s += `<line class="grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="${L-6}" y="${y(v)+4}" font-size="11" text-anchor="end">${v}</text>`; }
-  s += `<line x1="${L}" x2="${W}" y1="${y(D.start_elo)}" y2="${y(D.start_elo)}" stroke="var(--faint)" stroke-dasharray="4 4"/>`;
+  const bw = Math.min(56, (W-L-10)/rs.length - 8), colw = (W-L-10)/rs.length;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(mt.label)} by model">`;
+  for (let v = lo; v <= hi; v += step) s += `<line class="grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="${L-6}" y="${y(v)+4}" font-size="11" text-anchor="end">${v}${isElo?"":"%"}</text>`;
+  if (isElo) s += `<line x1="${L}" x2="${W}" y1="${y(D.start_elo)}" y2="${y(D.start_elo)}" stroke="var(--faint)" stroke-dasharray="4 4"/>`;
   rs.forEach((r,i) => {
-    const cx = L + step*i + step/2, x = cx - bw/2, top = y(r.elo), m = M(r.model);
-    s += `<g><title>${esc(m.name)} · ${Math.round(r.elo)} Elo (95% CI ${Math.round(r.ci_low)}–${Math.round(r.ci_high)}) · ${r.games} games · ${r.record}</title>
-      <rect x="${x}" y="${top}" width="${bw}" height="${T+plotH-top}" rx="4" fill="${m.color}"/>
-      <text class="val" x="${cx}" y="${top-7}" font-size="12.5" text-anchor="middle">${Math.round(r.elo)}</text>`;
-    if (icon(r.model) && T+plotH-top > 34) s += `<circle cx="${cx}" cy="${top+17}" r="11" fill="#fff"/><image href="icons/${icon(r.model)}.svg" x="${cx-7.5}" y="${top+9.5}" width="15" height="15"/>`;
+    const cx = L + colw*i + colw/2, x = cx - bw/2, top = y(r.v), m = M(r.id);
+    s += `<g><title>${esc(m.name)} · ${esc(r.tip)}</title>
+      <rect x="${x}" y="${top}" width="${bw}" height="${Math.max(T+plotH-top, 1)}" rx="4" fill="${m.color}"/>
+      <text class="val" x="${cx}" y="${top-7}" font-size="12.5" text-anchor="middle">${isElo ? Math.round(r.v) : Math.round(r.v)+"%"}</text>`;
+    if (icon(r.id) && T+plotH-top > 34) s += `<circle cx="${cx}" cy="${top+17}" r="11" fill="#fff"/><image href="icons/${icon(r.id)}.svg" x="${cx-7.5}" y="${top+9.5}" width="15" height="15"/>`;
     s += `<text class="lbl" transform="translate(${cx+4},${T+plotH+14}) rotate(-38)" text-anchor="end">${esc(m.name)}</text></g>`;
   });
   $("#ov-chart").innerHTML = s + "</svg>";
   const games = D.history.length;
-  $("#ov-foot").textContent = `${rs.length} models with games · ${games} games (${games*2} matches) · everyone started at ${D.start_elo}`;
+  $("#ov-foot").textContent = isElo
+    ? `${rs.length} models with games · ${games} games (${games*2} matches) · everyone started at ${D.start_elo}`
+    : `${rs.length} models with ${MIN_N}+ decisions of this kind · hover a bar for its sample size`;
 }
 
 /* ---------- elo vs speed ---------- */
@@ -381,6 +394,8 @@ async function boot(){
   $("#banner-txt").textContent = lead ? `${games} games played · ${M(lead.model).name} leads at ${Math.round(lead.elo)} Elo.` : "the mus Elo tournament is live.";
   $("#d-upd").textContent = `Updated: ${fmtDate(D.updated)}`;
   $("#d-tour").textContent = `Tournament: ${D.tournament} · ${D.protocol}`;
+  const qm = new URLSearchParams(location.search).get("metric");
+  if (METRICS.some(m => m.k === qm)) metric = qm;
   drawOverall(); drawScatter(); drawHeatmap(); drawCards(); drawLists(); drawTable();
   $("#q").addEventListener("input", drawTable);
 }
