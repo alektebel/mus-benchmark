@@ -206,6 +206,7 @@ class EffortSuffixTest(unittest.TestCase):
             CliAgent("x", "cursor-cli", "composer-2.5@high", 0, 0)
 
 
+@mock.patch.dict(os.environ, {"NAN_API_KEY": "test"})
 class LaRealInMatchTest(unittest.TestCase):
     def test_v4_matches_play_with_la_real_and_v3_without(self):
         seen = {}
