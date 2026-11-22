@@ -8,7 +8,7 @@ Nothing about the outcome is forced -- seeds fix the deals, the models fix
 the play, and every number here traces to a saved JSON.
 
 CLI:
-  python run_tournament.py --hands 10 --workers 3 --out results/tournament
+  python -m musbench.harness.tournament --hands 10 --workers 3 --out results/tournament
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def run_job(pairing: tuple[str, str], hands: int, seed: int, outdir: Path,
                # marks silent finishes as degraded if the abort does not fire.
                MAX_FALLBACK_RATE=os.environ.get("MAX_FALLBACK_RATE", "0.20"),
                FALLBACK_MIN_TURNS=os.environ.get("FALLBACK_MIN_TURNS", "12"))
-    cmd = [sys.executable, "-u", "run_match_kernel.py",
+    cmd = [sys.executable, "-u", "-m", "musbench.harness.kernel_match",
            "--teams", a, b, "--hands", str(hands), "--seed", str(seed),
            "--out", str(out), "--verbose"]
     t0 = time.time()
@@ -72,7 +72,8 @@ def run_job(pairing: tuple[str, str], hands: int, seed: int, outdir: Path,
     # with almost no real LLM calls — mark them degraded so they never enter
     # the publishable leaderboard (see bench_results.is_publishable_match).
     m = match_metrics(r)
-    if status in ("done", "finished") and not is_publishable_match(
+    has_llm = any(a.get("is_llm") for a in r.get("agents", []))
+    if status in ("done", "finished") and has_llm and not is_publishable_match(
             m["llm_calls"], m["fallbacks"], status):
         status = "degraded"
         r["status"] = status

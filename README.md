@@ -1,5 +1,24 @@
 # mus_bench
 
+<!-- leaderboard:start -->
+
+<p align="center"><img src="docs/leaderboard.svg" alt="mus_bench leaderboard" width="760"></p>
+
+**Best at mus right now: Jev (TypeSafe), +9.5 piedras/hand** (95% CI +5.5 to +13.1; ranked #1 in 100% of 1974 bootstrap resamples).
+
+| # | Model | Score | 95% CI | P(#1) | Matches | Opponents | Fallback % † |
+|--:|:--|--:|:-:|--:|--:|--:|--:|
+| 1 | **Jev (TypeSafe)** ⚠️ | +9.5 | +5.5 … +13.1 | 100% | 8 | 1 | 0.2% |
+| 2 | GLM-5.3 Flash | -1.1 | -4.0 … +1.9 | 0% | 24 | 3 | 1.7% |
+| 3 | Gemma 4 | -1.7 | -6.7 … +3.3 | 0% | 23 | 3 | 4.3% |
+| 4 | Qwen 3.6 | -2.0 | -6.6 … +2.8 | 0% | 23 | 3 | 2.7% |
+| 5 | DeepSeek-V4 Flash | -4.6 | -7.3 … -1.8 | 0% | 32 | 4 | 1.5% |
+
+<sub>Score: piedras per hand won against an average opponent of this field, from a seat-corrected paired rating over 55 mirrored matches (protocol `v2`). ⚠️ = rated against a single opponent; its score leans on that opponent's rating. † Share of LLM decisions that fell back to a default action; for the imported v2 matches this is per match (both teams), not per model. Method and how to add a model: [docs/SCORING.md](docs/SCORING.md). Regenerate with `python -m musbench.leaderboard score`.</sub>
+
+<!-- leaderboard:end -->
+
+
 A Python benchmark for cooperation between two-player LLM teams in mus.
 Team A occupies seats 0 and 2; Team B occupies seats 1 and 3.
 
@@ -19,10 +38,13 @@ strict results.
 
 ## Results and traces
 
+The leaderboard at the top is computed from `benchmark/matches.jsonl` (one line per
+match, append-only) by `python -m musbench.leaderboard score`; see
+[docs/SCORING.md](docs/SCORING.md) for the method and for adding a model.
+
 [docs/results-seed6-live.md](docs/results-seed6-live.md) reports the seed-6 live kernel
-match (GLM-5.3-Flash vs DeepSeek-V4-Flash) and pools every match in this repo. Read its
-header first: that run **timed out at hand 16 of 40**, and no match count here is large
-enough to rank models.
+match (GLM-5.3-Flash vs DeepSeek-V4-Flash), an exhibition trace that **timed out at hand
+16 of 40**. It is not part of the leaderboard.
 
 `publish/web/` is a static trace viewer that replays a finished match decision by
 decision -- the prompt each seat received, its reply, its private reasoning, and the

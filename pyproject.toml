@@ -7,11 +7,12 @@ name = "musbench"
 version = "0.1.0"
 description = "LLM cooperation in 2v2 mus under partial observability"
 requires-python = ">=3.10"
-dependencies = ["requests"]
+dependencies = ["requests", "tomli; python_version < '3.11'"]
 
 [project.scripts]
 mus-live = "musbench.live.server:main"
 mus-tournament = "musbench.harness.tournament:main"
+mus-leaderboard = "musbench.leaderboard.cli:main"
 mus-bench-kernel = "musbench.harness.bench_kernel:main"
 mus-bench-strict = "musbench.harness.bench_strict:main"
 

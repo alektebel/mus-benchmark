@@ -80,7 +80,7 @@ def run_job(model: str, arm: str, hands: int, seed: int, outdir: Path,
                NAN_TIMEOUT=os.environ.get("NAN_TIMEOUT", "75"))
     if os.environ.get("KERNEL_LOG_IO") == "1":
         env["KERNEL_LOG_IO"] = str(outdir / f"{name}.io.jsonl")
-    cmd = [sys.executable, "-u", "run_match_kernel.py",
+    cmd = [sys.executable, "-u", "-m", "musbench.harness.kernel_match",
            "--models", f"{model},heuristic,{model},heuristic",
            "--hands", str(hands), "--seed", str(seed), "--out", str(out),
            "--verbose"]

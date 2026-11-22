@@ -1,0 +1,49 @@
+# The mus_bench model roster.
+#
+# To add a model, append one [[model]] block and run:
+#
+#     python -m musbench.leaderboard run <id>     # plays the new model (API spend)
+#     python -m musbench.leaderboard score        # refreshes README + leaderboard.svg
+#
+# or do both in one step with `python -m musbench.leaderboard add ...` (see
+# docs/SCORING.md). `id` is the name stored in benchmark/matches.jsonl and must
+# never change once matches exist; `spec` is anything the harness accepts
+# (`provider:model`, a bare model name for the default provider, `anthropic:...`,
+# `typesafe:...`, or an offline baseline such as `heuristic`).
+
+[benchmark]
+# Matches are only pooled within one protocol. Bump this whenever the engine,
+# the prompt contract or the schedule changes in a way that moves scores, and
+# re-run the roster: scores from different protocols are not comparable.
+protocol = "v2"
+hands = 8                 # hands per match
+seeds = [0, 1, 2, 3]      # every pairing plays every seed in BOTH seatings
+# Model fixed at score 0. Empty = the mean of the rated field is 0, which
+# makes every score shift a little whenever a model joins.
+anchor = ""
+bootstrap = 2000          # resamples for the 95% interval
+
+[[model]]
+id = "typesafe:jev-latest"
+name = "Jev (TypeSafe)"
+spec = "typesafe:jev-latest"
+
+[[model]]
+id = "glm5.3-flash"
+name = "GLM-5.3 Flash"
+spec = "glm5.3-flash"
+
+[[model]]
+id = "gemma4"
+name = "Gemma 4"
+spec = "gemma4"
+
+[[model]]
+id = "qwen3.6"
+name = "Qwen 3.6"
+spec = "qwen3.6"
+
+[[model]]
+id = "deepseek-v4-flash"
+name = "DeepSeek-V4 Flash"
+spec = "deepseek-v4-flash"

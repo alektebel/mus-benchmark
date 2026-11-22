@@ -8,7 +8,7 @@ start gesture-silent and must DECLARE a signal policy; baseline seats carry
 the rule-based reference policy (signalling floor).
 
 CLI:
-  python run_match_kernel.py --models "heuristic,random,heuristic,random" --hands 12 --seed 7
+  python -m musbench.harness.kernel_match --models "heuristic,random,heuristic,random" --hands 12 --seed 7
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def main():
             ap.error("--models requires exactly four non-empty comma-separated specs")
     if args.hands <= 0:
         ap.error("--hands must be positive")
-    import musbench.harness.kernel
+    import musbench.harness.kernel as virtual_kernel
     if args.window is not None:
         virtual_kernel.KERNEL_WINDOW = args.window
     if args.jitter is not None:

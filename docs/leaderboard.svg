@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="362" viewBox="0 0 760 362" role="img" aria-labelledby="t d">
+<title id="t">mus_bench leaderboard</title>
+<desc id="d">#1 Jev (TypeSafe) +9.5 piedras/hand; #2 GLM-5.3 Flash -1.1 piedras/hand; #3 Gemma 4 -1.7 piedras/hand; #4 Qwen 3.6 -2.0 piedras/hand; #5 DeepSeek-V4 Flash -4.6 piedras/hand</desc>
+<style>
+.bg{fill:#ffffff} text{fill:#1b1d27} .mut{fill:#6b7086} .grid{stroke:#e4e6ee}
+.bar{fill:#8f96b3} .top{fill:#c8102e} .ci{stroke:#1b1d27}
+@media (prefers-color-scheme: dark){.bg{fill:#0f111c} text{fill:#eef0f7} .mut{fill:#9aa0b5}
+.grid{stroke:#262a3b} .bar{fill:#59607d} .top{fill:#ff4d5e} .ci{stroke:#eef0f7}}
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+.row{animation:in .55s cubic-bezier(.2,.7,.2,1) backwards}
+@keyframes in{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){.row{animation:none}}
+</style>
+<rect width="760" height="362" rx="14" class="bg"/>
+<text x="24" y="38" font-size="20" font-weight="700">Who plays mus best?</text>
+<text x="24" y="62" font-size="12.5" class="mut">Score = piedras per hand won vs an average opponent · 95% bootstrap interval · protocol v2 · 55 matches</text>
+<line x1="369.9" y1="78" x2="369.9" y2="316" class="grid" stroke-width="1.5"/>
+<g class="row" style="animation-delay:0.25s">
+<text x="24" y="114.0" font-size="15" font-weight="700">1. Jev (TypeSafe)</text>
+<rect x="369.9" y="100.0" width="178.4" height="18" rx="4" class="top"/>
+<line x1="474.7" y1="109.0" x2="617.0" y2="109.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<line x1="474.7" y1="104.0" x2="474.7" y2="114.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<line x1="617.0" y1="104.0" x2="617.0" y2="114.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<text x="736" y="114.0" font-size="15" text-anchor="end" font-weight="700">+9.5</text>
+</g>
+<g class="row" style="animation-delay:0.70s">
+<text x="24" y="160.0" font-size="15" font-weight="500">2. GLM-5.3 Flash</text>
+<rect x="348.9" y="146.0" width="21.0" height="18" rx="4" class="bar"/>
+<line x1="293.5" y1="155.0" x2="405.7" y2="155.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<line x1="293.5" y1="150.0" x2="293.5" y2="160.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<line x1="405.7" y1="150.0" x2="405.7" y2="160.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<text x="736" y="160.0" font-size="15" text-anchor="end" font-weight="500">-1.1</text>
+</g>
+<g class="row" style="animation-delay:1.15s">
+<text x="24" y="206.0" font-size="15" font-weight="500">3. Gemma 4</text>
+<rect x="337.9" y="192.0" width="32.1" height="18" rx="4" class="bar"/>
+<line x1="244.3" y1="201.0" x2="431.6" y2="201.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<line x1="244.3" y1="196.0" x2="244.3" y2="206.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<line x1="431.6" y1="196.0" x2="431.6" y2="206.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<text x="736" y="206.0" font-size="15" text-anchor="end" font-weight="500">-1.7</text>
+</g>
+<g class="row" style="animation-delay:1.60s">
+<text x="24" y="252.0" font-size="15" font-weight="500">4. Qwen 3.6</text>
+<rect x="331.9" y="238.0" width="38.0" height="18" rx="4" class="bar"/>
+<line x1="245.4" y1="247.0" x2="423.2" y2="247.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<line x1="245.4" y1="242.0" x2="245.4" y2="252.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<line x1="423.2" y1="242.0" x2="423.2" y2="252.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<text x="736" y="252.0" font-size="15" text-anchor="end" font-weight="500">-2.0</text>
+</g>
+<g class="row" style="animation-delay:2.05s">
+<text x="24" y="298.0" font-size="15" font-weight="500">5. DeepSeek-V4 Flash</text>
+<rect x="282.6" y="284.0" width="87.3" height="18" rx="4" class="bar"/>
+<line x1="233.0" y1="293.0" x2="336.8" y2="293.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<line x1="233.0" y1="288.0" x2="233.0" y2="298.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<line x1="336.8" y1="288.0" x2="336.8" y2="298.0" class="ci" stroke-width="1.6" opacity=".7"/>
+<text x="736" y="298.0" font-size="15" text-anchor="end" font-weight="500">-4.6</text>
+</g>
+<text x="24" y="344" font-size="12" class="mut">#1 is clear of #2 (intervals do not overlap)</text>
+</svg>
