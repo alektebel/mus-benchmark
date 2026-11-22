@@ -1,8 +1,16 @@
-# mus_bench
-
-**Can language models play mus?** Teams of two models play the Spanish card game against each other: betting, bluffing, folding, and backing a partner they can't talk to. Every game is played twice on the same cards with the seats swapped, so luck cancels out. Every model starts at 1000 Elo.
-
 <!-- leaderboard:start -->
+
+<a href="#what-a-game-looks-like"><img src="docs/banner.svg" alt="News: 20 games played, Claude Haiku 5.5 leads" width="880"></a>
+
+# Mus leaderboard for language models
+
+Teams of two models play Spanish mus against each other on the same cards, seats swapped. Every model starts at the same Elo; skills are scored against the engine's view of every hand. This repository is **mus_bench**: the engine, the harness, the ratings and every match replay.
+
+<sub>Updated: 2026-11-22 · Tournament: `elo-1` · protocol `v3-menu`</sub>
+
+**[Standings](#standings) · [Speed](#standings) · [Skills](#skills) · [Best per skill](#skills) · [Compare](#model-comparison) · [Watch a hand](#what-a-game-looks-like)**
+
+<a id="standings"></a>
 
 <p align="center"><img src="docs/leaderboard.svg" alt="Best overall: Elo by model" width="880"></p>
 
@@ -10,11 +18,15 @@
 
 <p align="center"><img src="docs/speed.svg" alt="Elo against seconds per decision" width="880"></p>
 
+<a id="skills"></a>
+
 <p align="center"><img src="docs/heatmap.svg" alt="Mus heatmap: the leader of each skill" width="880"></p>
 
 <p align="center"><img src="docs/skills.svg" alt="Best models per skill" width="880"></p>
 
-### Model comparison
+<p align="center"><img src="docs/fastest.svg" alt="Fastest and most decisive" width="880"></p>
+
+## Model comparison
 
 | Model | Provider | Harness | Elo | 95% CI | Games | W-L-D | Piedras/hand | Fold acc. | Call acc. | Bluff rate | s/decision |
 |:--|:--|:--|--:|:-:|--:|:-:|--:|--:|--:|--:|--:|

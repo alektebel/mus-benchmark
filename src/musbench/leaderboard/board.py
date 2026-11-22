@@ -344,9 +344,81 @@ def skills_svg(skills: dict, meta: dict, defs: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+# -------------------------------------------------------------- banner ----
+def banner_svg(lead_name: str, lead_elo: float, games: int) -> str:
+    H = 40
+    out = _open(H, "Tournament news")
+    msg = f"{games} games played · {lead_name} leads at {lead_elo:.0f} Elo."
+    out += [f'<rect width="{W}" height="{H}" rx="8" class="lime"/>',
+            f'<text x="{W / 2:.0f}" y="25" font-size="13.5" text-anchor="middle" class="limeink">'
+            f'<tspan font-weight="700">New: </tspan>{esc(msg)}'
+            f'<tspan font-weight="700" dx="10">Watch a hand ↓</tspan></text>', '</svg>']
+    return "\n".join(out) + "\n"
+
+
+# ------------------------------------------------------------- fastest ----
+def fastest_svg(rows: list[dict], meta: dict, skills: dict, specs: dict) -> str:
+    """Three top-5 cards: fastest decisions, biggest winners, boldest bettors."""
+    played = [r for r in rows if r["games"] > 0]
+    lists = [
+        ("Fastest decisions", "s / move", "Wall time per decision · lower is better",
+         sorted([(r["model"], skills[r["model"]]["sec_per_move"]) for r in played
+                 if (skills.get(r["model"]) or {}).get("sec_per_move")], key=lambda t: t[1]),
+         lambda v: f"{v:.1f}s"),
+        ("Biggest winners", "piedras / hand", "Margin over both seatings · higher is better",
+         sorted([(r["model"], r["per_hand"]) for r in played], key=lambda t: -t[1]),
+         lambda v: f"{v:+.1f}"),
+        ("Boldest bettors", "bluff rate", "Bets made from a bottom-third hand",
+         sorted([(r["model"], skills[r["model"]]["bluff_rate"]) for r in played
+                 if (skills.get(r["model"]) or {}).get("bluff_rate") is not None
+                 and skills[r["model"]].get("bet_n", 0) >= MIN_N], key=lambda t: -t[1]),
+         lambda v: f"{v:.0%}"),
+    ]
+    gap, ch = 12, 300
+    cw = (W - 2 * gap) / 3
+    H = ch + 54
+    out = _open(H, "Fastest and most decisive")
+    out.append(f'<text x="0" y="26" font-size="20" font-weight="600" class="t">Fastest and most decisive</text>')
+    for i, (title, unit, note, items, fmt) in enumerate(lists):
+        x0, y0 = i * (cw + gap), 46
+        out.append(f'<g class="fade" style="animation-delay:{.1 + i * .12:.2f}s">'
+                   f'<rect x="{x0 + .5:.1f}" y="{y0 + .5}" width="{cw - 1:.1f}" height="{ch - 1}" rx="14" class="card"/>'
+                   f'<text x="{x0 + 18:.1f}" y="{y0 + 32}" font-size="16" font-weight="600" class="t">{esc(title)}</text>'
+                   f'<text x="{x0 + 18:.1f}" y="{y0 + 52}" font-size="11" class="m">{esc(note)}</text>')
+        pw = 12 + 6 * len(unit)
+        out.append(f'<rect x="{x0 + cw - 16 - pw:.1f}" y="{y0 + 17}" width="{pw:.1f}" height="21" rx="7" fill="none" class="line"/>'
+                   f'<text x="{x0 + cw - 16 - pw / 2:.1f}" y="{y0 + 31.5}" font-size="10.5" text-anchor="middle" class="m">{esc(unit)}</text>')
+        top = max([abs(v) for _, v in items] or [1]) or 1
+        low = min([v for _, v in items] or [1]) or 1
+        lower_better = title.startswith("Fastest")
+        for j, (mid, v) in enumerate(items[:5]):
+            ry = y0 + 86 + j * 40
+            first = j == 0
+            m = meta[mid]
+            out.append(f'<rect x="{x0 + 16:.1f}" y="{ry - 12:.1f}" width="22" height="17" rx="4" '
+                       f'class="{"lime" if first else "soft"}"/><text x="{x0 + 27:.1f}" y="{ry + 1:.1f}" '
+                       f'font-size="10" text-anchor="middle" class="mono {"limeink" if first else "f"}">{j + 1:02d}</text>')
+            out.append(_logo(m, x0 + 56, ry - 4, 11, f"fa{i}{j}", chip="rect"))
+            name = _fit(m["name"], (cw - 140) / 6.8)
+            out.append(f'<text x="{x0 + 72:.1f}" y="{ry + 1:.1f}" font-size="12.5" class="t">{esc(name)}'
+                       f'<title>{esc(m["name"])} via {esc(harness(specs[mid]))}</title></text>'
+                       f'<text x="{x0 + cw - 16:.1f}" y="{ry + 1:.1f}" font-size="12.5" font-weight="700" '
+                       f'text-anchor="end" class="t mono">{fmt(v)}</text>')
+            tw = cw - 88
+            out.append(f'<rect x="{x0 + 72:.1f}" y="{ry + 9:.1f}" width="{tw:.1f}" height="5" rx="2.5" class="soft"/>'
+                       f'<rect x="{x0 + 72:.1f}" y="{ry + 9:.1f}" width="{max(tw * ((low / v) if lower_better else abs(v) / top), 2):.1f}" '
+                       f'height="5" rx="2.5" fill="{color(m)}"/>')
+        if not items:
+            out.append(f'<text x="{x0 + 18:.1f}" y="{y0 + 90}" font-size="12" class="f">No data yet.</text>')
+        out.append('</g>')
+    out.append('</svg>')
+    return "\n".join(out) + "\n"
+
+
 # ------------------------------------------------------------ markdown ----
 def markdown(res: dict, live: dict, meta: dict, skills: dict, cfg: dict, paths: dict,
-             start: str, end: str, icon_dir: str = "benchmark/icons") -> str:
+             start: str, end: str, icon_dir: str = "benchmark/icons",
+             updated: str = "") -> str:
     rows = res["rows"]
     if not rows:
         return (f"{start}\n_No games yet in tournament `{cfg.get('tournament')}`: every "
@@ -371,11 +443,26 @@ def markdown(res: dict, live: dict, meta: dict, skills: dict, cfg: dict, paths: 
         s = skills.get(mid) or {}
         return "—" if s.get(k) is None else f"{s[k]:.0%}"
 
-    lines = [start, "", img("overall", "Best overall: Elo by model"), "", verdict, "",
+    hero = [f'<a href="#what-a-game-looks-like"><img src="{paths["banner"]}" alt="News: '
+            f'{res["games"]} games played, {esc(meta[best["model"]]["name"])} leads" width="{W}"></a>', "",
+            "# Mus leaderboard for language models", "",
+            "Teams of two models play Spanish mus against each other on the same cards, seats "
+            "swapped. Every model starts at the same Elo; skills are scored against the engine's "
+            "view of every hand. This repository is **mus_bench**: the engine, the harness, the "
+            "ratings and every match replay.", "",
+            f"<sub>Updated: {updated or '—'} · Tournament: `{cfg.get('tournament')}` · "
+            f"protocol `{cfg['protocol']}`</sub>", "",
+            "**[Standings](#standings) · [Speed](#standings) · [Skills](#skills) · "
+            "[Best per skill](#skills) · [Compare](#model-comparison) · "
+            "[Watch a hand](#what-a-game-looks-like)**", "",
+            '<a id="standings"></a>', ""]
+    lines = [start, ""] + hero + [img("overall", "Best overall: Elo by model"), "", verdict, "",
              img("speed", "Elo against seconds per decision"), "",
+             '<a id="skills"></a>', "",
              img("heatmap", "Mus heatmap: the leader of each skill"), "",
              img("skills", "Best models per skill"), "",
-             "### Model comparison", "",
+             img("fastest", "Fastest and most decisive"), "",
+             "## Model comparison", "",
              "| Model | Provider | Harness | Elo | 95% CI | Games | W-L-D | Piedras/hand | Fold acc. | Call acc. | Bluff rate | s/decision |",
              "|:--|:--|:--|--:|:-:|--:|:-:|--:|--:|--:|--:|--:|"]
     for r in rows:

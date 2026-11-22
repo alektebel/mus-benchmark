@@ -35,7 +35,7 @@ jobs:
           PYTHONPATH: src
         run: |
           python -m musbench.leaderboard score
-          git diff --exit-code -- README.md docs/leaderboard.svg docs/speed.svg docs/heatmap.svg docs/skills.svg benchmark/leaderboard.json \
+          git diff --exit-code -- README.md docs/leaderboard.svg docs/speed.svg docs/heatmap.svg docs/skills.svg docs/fastest.svg docs/banner.svg benchmark/leaderboard.json \
             || { echo "::error::run 'python -m musbench.leaderboard score' and commit"; exit 1; }
 
       - name: Static page build dry-run

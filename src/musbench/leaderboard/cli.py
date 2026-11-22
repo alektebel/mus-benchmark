@@ -486,7 +486,15 @@ def score_elo(cfg, ledger, args):
     svg_path.parent.mkdir(parents=True, exist_ok=True)
     rel = Path(args.svg).parent
     paths = {"overall": args.svg, "speed": str(rel / "speed.svg"),
-             "heatmap": str(rel / "heatmap.svg"), "skills": str(rel / "skills.svg")}
+             "heatmap": str(rel / "heatmap.svg"), "skills": str(rel / "skills.svg"),
+             "fastest": str(rel / "fastest.svg"), "banner": str(rel / "banner.svg")}
+    specs = {k: v["spec"] for k, v in cfg["models"].items()}
+    updated = max((m.get("finished_at") or "" for m in rated), default="")[:10]
+    if res["rows"]:
+        lead = res["rows"][0]
+        (ROOT / paths["banner"]).write_text(
+            board.banner_svg(meta[lead["model"]]["name"], lead["elo"], res["games"]))
+    (ROOT / paths["fastest"]).write_text(board.fastest_svg(res["rows"], meta, sk, specs))
     svg_path.write_text(board.overall_svg(res["rows"], meta, cfg["start_elo"], tag))
     (ROOT / paths["speed"]).write_text(board.speed_svg(res["rows"], meta, sk))
     (ROOT / paths["heatmap"]).write_text(board.heatmap_svg(sk, meta, skills_mod.SKILLS))
@@ -505,7 +513,7 @@ def score_elo(cfg, ledger, args):
     readme = ROOT / args.readme
     readme.write_text(render.splice_readme(
         readme.read_text(), board.markdown(res, live, meta, sk, cfg, paths,
-                                           render.START, render.END)))
+                                           render.START, render.END, updated=updated)))
     cmd_elo(cfg, ledger, args)
     print(f"wrote {args.readme}, {args.svg}, {args.json}, {hist_path.relative_to(ROOT)}")
 

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="40" viewBox="0 0 880 40" role="img" aria-label="Tournament news">
+<style>
+text{font-family:'Inter Tight','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
+.mono{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.card{fill:#ffffff;stroke:#e5e7e0} .t{fill:#181c21} .m{fill:#5d646d} .f{fill:#737a83}
+.grid{stroke:#e9ebe4} .base{stroke:#9aa0a8} .soft{fill:#f6f7f3} .line{stroke:#e5e7e0}
+.lime{fill:#d7f77d} .limeink{fill:#2f3d06} .quad{fill:#c7ef5c;fill-opacity:.28}
+.chip{fill:#ffffff;stroke:#e5e7e0} .ico{color:#16191d} .halo{paint-order:stroke;stroke:#ffffff;stroke-width:4px;stroke-linejoin:round}
+.pill{fill:#16191d} .pillt{fill:#ffffff}
+@media (prefers-color-scheme:dark){
+ .card{fill:#121518;stroke:#252a30} .t{fill:#eceef1} .m{fill:#a7aeb7} .f{fill:#8b929c}
+ .grid{stroke:#20252b} .base{stroke:#6f7680} .soft{fill:#1a1e23} .line{stroke:#252a30}
+ .lime{fill:#c9ef5f} .limeink{fill:#1d2604} .quad{fill:#c9ef5f;fill-opacity:.10}
+ .halo{stroke:#121518} .pill{fill:#eceef1} .pillt{fill:#121518}}
+.rise{transform-box:fill-box;transform-origin:50% 100%;animation:rise .7s cubic-bezier(.2,.7,.2,1) backwards}
+.fade{animation:fade .5s ease-out backwards}
+@keyframes rise{from{transform:scaleY(0)}}
+@keyframes fade{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.rise,.fade{animation:none}}
+</style>
+<rect width="880" height="40" rx="8" class="lime"/>
+<text x="440" y="25" font-size="13.5" text-anchor="middle" class="limeink"><tspan font-weight="700">New: </tspan>20 games played · Claude Haiku 5.5 leads at 1252 Elo.<tspan font-weight="700" dx="10">Watch a hand ↓</tspan></text>
+</svg>
