@@ -103,6 +103,30 @@ decided. Tío Perete is now a menu choice instead of automatic. Invalid
 answers are re-asked and never replaced by a default move (the pilot had
 none). Each match's `commit` in the ledger records the exact code it ran on.
 
+### Tournament `elo-2` (prepared, not run)
+
+`benchmark/models-elo2.toml` holds the next run. Select it with
+`MUSBENCH_CONFIG=benchmark/models-elo2.toml`; the published board keeps
+reading `models.toml` (`elo-1`) until the file is copied over.
+
+* **Protocol `v4-menu`** (`MENU_PROTOCOL=v4-menu`, set automatically from the
+  config). It carries the same information as v3 in less text. Suits are dropped,
+  since they never matter in mus. One fixed rules block comes first and spells out
+  the Grande and Chica card orders. Discards with the same ranks are listed once,
+  and showdowns are compact. Measured through `claude -p` on Haiku 5.5:
+  about 1,700 input tokens per call against about 2,140 for v3. About 630 of
+  those are the CLI's own fixed overhead. Different prompts did not share cache
+  through the CLI.
+* **Fixed Chica ranks.** The tres counts as rey in every lance, so the rey and
+  the tres are the *worst* Chica cards. Before this fix the engine valued them
+  as 3 at Chica, the third-best card. That gave the wrong Chica winner in 48 of
+  the 373 `elo-1` hands (13%) and skewed the Chica ground truth used by the
+  skills. `elo-1` is a pilot for this reason too.
+* **Thinking effort is part of the model id.** Every CLI model is on the
+  roster twice, `<id>-low` and `<id>-high`. The spec suffix `@low` / `@high`
+  becomes `claude --effort` or Codex `model_reasoning_effort`, so each level is
+  rated as its own player. Cursor and Jev have no effort setting here.
+
 ### A fresh tournament
 
 Only ledger rows tagged with `tournament` (in `benchmark/models.toml`) count.

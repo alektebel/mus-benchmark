@@ -46,15 +46,18 @@ class EngineRegressionTests(unittest.TestCase):
         self.assertEqual(self.engine._grande_value(hand("tres", "cuatro", "cinco", "seis"))[0],
                          self.engine._grande_value(hand("rey", "cuatro", "cinco", "seis"))[0])
 
-    def test_chica_orders_as_best_and_tres_before_cuatro(self):
-        # for chica, as (1) beats dos (2); tres/rey (3) beats cuatro (4)
+    def test_chica_orders_as_best_and_rey_tres_worst(self):
+        # for chica, as beats dos; tres counts as rey, so both are the worst
         self.assertGreater(self.engine._chica_value([Card("as", "oros")]),
                            self.engine._chica_value([Card("dos", "oros")]))
-        self.assertGreater(self.engine._chica_value([Card("tres", "oros")]),
-                           self.engine._chica_value([Card("cuatro", "oros")]))
-        # caballo (11) is the worst chica card
+        self.assertGreater(self.engine._chica_value([Card("cuatro", "oros")]),
+                           self.engine._chica_value([Card("tres", "oros")]))
         self.assertGreater(self.engine._chica_value([Card("sota", "oros")]),
                            self.engine._chica_value([Card("caballo", "oros")]))
+        self.assertGreater(self.engine._chica_value([Card("caballo", "oros")]),
+                           self.engine._chica_value([Card("rey", "oros")]))
+        self.assertEqual(self.engine._chica_value([Card("rey", "oros")]),
+                         self.engine._chica_value([Card("tres", "copas")]))
 
     def test_both_false_declarations_are_rejected_without_mutation(self):
         for lance, cards in ((2, hand("rey", "tres", "as", "cuatro")),

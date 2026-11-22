@@ -52,10 +52,12 @@ CARD_POINTS = {
 # Grande ordering: tres=rey on top, then caballo, sota, 7..4, dos beats as.
 RANK_GRANDE = {"tres": 12, "rey": 12, "caballo": 11, "sota": 10, "siete": 7,
                "seis": 6, "cinco": 5, "cuatro": 4, "dos": 2, "as": 1}
-# Chica ordering (lower card wins; tres=rey valued 3): higher = better card.
+# Chica ordering (lower card wins): higher = better card. tres = rey here too,
+# so both are the WORST chica cards (below caballo). Before v4 the engine
+# valued rey and tres as 3 at chica, which made them the third-best card.
 # Sorted descending, so the best (lowest) card is compared first.
-RANK_CHICA = {"as": 11, "dos": 10, "tres": 9, "rey": 9, "cuatro": 8,
-              "cinco": 7, "seis": 6, "siete": 5, "sota": 2, "caballo": 1}
+RANK_CHICA = {"as": 11, "dos": 10, "cuatro": 8, "cinco": 7, "seis": 6,
+              "siete": 5, "sota": 2, "caballo": 1, "tres": 0, "rey": 0}
 
 JUEGO_TOTALS = tuple(range(31, 41))
 JUEGO_RANK = {31: 10, 32: 9, 40: 8, 39: 7, 38: 6, 37: 5, 36: 4, 35: 3, 34: 2, 33: 1}

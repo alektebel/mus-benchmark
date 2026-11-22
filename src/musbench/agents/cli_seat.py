@@ -4,6 +4,12 @@ Spec forms:
     claude-cli:claude-fable-5-2       ->  claude -p --model ...
     codex-cli:gpt-5.3-codex           ->  codex exec -m ...
     cursor-cli:gpt-5.6-sol-high       ->  cursor-agent -p --model ...
+    claude-cli:claude-opus-5-5@low    ->  ... --effort low
+    codex-cli:gpt-6-sol@high          ->  ... model_reasoning_effort="high"
+
+The optional @effort suffix pins thinking effort, so the same model can sit on
+the roster once per effort level. Without it Claude Code uses its default and
+Codex uses CODEX_SEAT_EFFORT.
 
 These reach models with no API key in this environment (the CLIs use the
 user's own login). Each decision is one fresh, stateless CLI call run in an
@@ -29,6 +35,8 @@ CODEX_EFFORT = os.environ.get("CODEX_SEAT_EFFORT", "medium")
 SYSTEM = ("You are a mus (Spanish card game) player in a benchmark. Decide "
           "from the information given. Answer only with the requested JSON.")
 BACKENDS = ("claude-cli", "codex-cli", "cursor-cli")
+EFFORTS = {"claude-cli": ("low", "medium", "high", "xhigh", "max"),
+           "codex-cli": ("minimal", "low", "medium", "high", "xhigh")}
 
 
 class CliAgent(SeatBase):
@@ -37,7 +45,12 @@ class CliAgent(SeatBase):
     def __init__(self, name: str, backend: str, model: str, seat: int, team: int):
         if backend not in BACKENDS:
             raise ValueError(f"unknown CLI backend {backend!r}")
+        model, _, effort = model.partition("@")
+        if effort and effort not in EFFORTS.get(backend, ()):
+            raise ValueError(f"{backend} does not take effort {effort!r} "
+                             f"(allowed: {EFFORTS.get(backend, ())})")
         self.name, self.model, self.seat, self.team = name, model, seat, team
+        self.effort = effort or (CODEX_EFFORT if backend == "codex-cli" else "")
         self.provider = backend
         self.deadline = None
         self.cost_usd = 0.0
@@ -58,10 +71,11 @@ class CliAgent(SeatBase):
         if self.provider == "claude-cli":
             return ["claude", "-p", "--model", self.model, "--output-format", "json",
                     "--tools", "", "--setting-sources", "", "--strict-mcp-config",
-                    "--no-session-persistence", "--system-prompt", SYSTEM]
+                    "--no-session-persistence", "--system-prompt", SYSTEM,
+                    *(["--effort", self.effort] if self.effort else [])]
         if self.provider == "codex-cli":
             return ["codex", "exec", "-m", self.model, "-s", "read-only",
-                    "-c", f'model_reasoning_effort="{CODEX_EFFORT}"',
+                    "-c", f'model_reasoning_effort="{self.effort}"',
                     "--skip-git-repo-check", "--ephemeral",
                     "-o", str(out_file), "-"]
         return ["cursor-agent", "-p", "--model", self.model, "--output-format", "json",

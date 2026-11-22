@@ -46,7 +46,14 @@ from musbench.observe.decision_log import (DecisionLog, build_decision,
                                            build_hand, dealt_snapshot,
                                            truth_snapshot)
 
-PROTOCOL = "v3-menu"
+# v3-menu: the elo-1 pilot prompt. v4-menu: same information, shorter text
+# (suits dropped -- they never matter in mus -- one rules block that comes
+# first so the CLI can cache it, explicit card orders per lance, discards
+# deduplicated by rank, compact showdowns). Pick with MENU_PROTOCOL.
+PROTOCOL = os.environ.get("MENU_PROTOCOL", "v3-menu")
+if PROTOCOL not in ("v3-menu", "v4-menu"):
+    raise SystemExit(f"unknown MENU_PROTOCOL {PROTOCOL!r}")
+V4 = PROTOCOL == "v4-menu"
 MATCH_TIMEOUT = float(os.environ.get("MATCH_TIMEOUT", "5400"))
 MAX_TURNS_PER_HAND = 400
 # A seat that cannot produce a valid number this often is not being measured.
@@ -77,6 +84,32 @@ RULES OF THIS TABLE (Spanish 40-card deck, 2 vs 2, partners sit opposite):
 """
 
 
+RULES_V4 = """\
+MUS RULES (40-card Spanish deck; suits never matter; 2 vs 2, partners sit opposite)
+- Four lances in order: Grande (high cards), Chica (low cards), Pares, Juego
+  (31-40 points; if nobody has juego: Punto, highest total up to 30).
+  Compare best card first, then the next. A team plays the better of its two
+  hands. Ties go to the seat nearest the mano.
+- tres counts as rey and as/dos stay different, in every lance.
+  Grande, best to worst: rey=tres, caballo, sota, siete, seis, cinco, cuatro, dos, as.
+  Chica, best to worst: as, dos, cuatro, cinco, seis, siete, sota, caballo, rey=tres.
+- Points: rey, tres, caballo, sota = 10; as, dos = 1; others face value.
+- Pares: par < medias (three alike) < duples (two pairs or four alike);
+  within a kind, higher cards win.
+- Juego: 31 > 32 > 40 > 39 > 38 > 37 > 36 > 35 > 34 > 33.
+- Only seats that HAVE pares (or juego) bet in that lance.
+- Bets: envido 2, y-yo +2, reenvido doubles, órdago = the whole vaca.
+  quiero accepts (paid when cards are shown at the end of the hand);
+  no-quiero folds. If both rivals fold, the bettor's team takes the previous
+  stake (1 if none) and the lance.
+- An accepted órdago in a lance is decided by that lance alone. Before the
+  draw the mano may call órdago: the team that wins more of the four lances
+  takes the vaca (Grande breaks a 2-2 tie).
+- Mus: if all four say mus, everyone changes cards; one "no hay mus" stops
+  it. A vaca is 40 piedras; both scores then reset.
+"""
+
+
 class ProviderError(Exception):
     """The seat's API/CLI failed after its own retries; replay the match."""
 
@@ -99,8 +132,10 @@ def _rel(seat: int, other: int) -> str:
 
 
 def _cards(cards) -> str:
-    return ", ".join(str(c) for c in sorted(
-        cards, key=lambda c: -RANK_GRANDE.get(c.rank, 0)))
+    srt = sorted(cards, key=lambda c: -RANK_GRANDE.get(c.rank, 0))
+    if V4:                                   # suits never matter in mus
+        return ", ".join(c.rank for c in srt)
+    return ", ".join(str(c) for c in srt)
 
 
 class PublicLog:
@@ -141,8 +176,14 @@ def menu_options(engine: MusEngine, seat: int) -> list[tuple[str, dict]]:
     out: list[tuple[str, dict]] = []
     if engine.phase == Phase.MUS_DRAW:
         hand = list(engine.hands[seat])
+        seen = set()
         for k in range(1, 5):
             for combo in itertools.combinations(hand, k):
+                if V4:                       # same ranks = same move
+                    key = tuple(sorted(c.rank for c in combo))
+                    if key in seen:
+                        continue
+                    seen.add(key)
                 keep = [c for c in hand if c not in combo]
                 label = (f"change {k}: {_cards(combo)}"
                          + (f"  (keep {_cards(keep)})" if keep else "  (all four)"))
@@ -209,6 +250,9 @@ def build_menu_prompt(engine: MusEngine, seat: int, log: PublicLog,
                     else (engine.points_b, engine.points_a))
     mv, tv = ((engine.vacas_a, engine.vacas_b) if team == 0
               else (engine.vacas_b, engine.vacas_a))
+    if V4:
+        return _build_v4(engine, seat, log, options, hand_no, hands, team,
+                         hand, pares, juego, mine, theirs, mv, tv)
     lines = [
         f"You are seat {seat} in a game of mus. Your partner is seat {(seat + 2) % 4}; "
         f"seats {(seat + 1) % 4} and {(seat + 3) % 4} are your rivals. Your team is "
@@ -232,6 +276,28 @@ def build_menu_prompt(engine: MusEngine, seat: int, log: PublicLog,
     lines += [f"  {i}. {label}" for i, (label, _) in enumerate(options, 1)]
     lines += ["", f'Reply with JSON only: {{"choice": <1-{len(options)}>, '
                   f'"why": "<one short sentence>"}}']
+    return "\n".join(lines)
+
+
+def _build_v4(engine, seat, log, options, hand_no, hands, team, hand, pares,
+              juego, mine, theirs, mv, tv) -> str:
+    # The rules come first and never change, so the CLI can cache them.
+    lines = [RULES_V4,
+             f"You are seat {seat}, team {'A (seats 0+2)' if team == 0 else 'B (seats 1+3)'}. "
+             f"Partner: seat {(seat + 2) % 4}. Rivals: seats {(seat + 1) % 4} and {(seat + 3) % 4}.",
+             f"Hand {hand_no} of {hands}. Mano: {_rel(seat, engine.mano)}. "
+             f"Score: you {mine}, rivals {theirs} (vacas {mv}-{tv}).",
+             f"Your cards: {_cards(hand)} -> {pares}; {juego}."]
+    if engine.locked_envites:
+        lines.append("Accepted bets (paid at the end): " + "; ".join(
+            f"{n} {s}" for n, s, _ in engine.locked_envites))
+    lines += ["This hand so far:"] + (log.view(seat) or ["- (nothing yet)"])
+    if log.past:
+        lines += ["Recent hands (all cards shown at the end):"] + log.past[-HISTORY_HANDS:]
+    lines += [_situation(engine, seat), "Options:"]
+    lines += [f"  {i}. {label}" for i, (label, _) in enumerate(options, 1)]
+    lines += [f'Reply with JSON only: {{"choice": <1-{len(options)}>, '
+              f'"why": "<one short sentence>"}}']
     return "\n".join(lines)
 
 
@@ -442,9 +508,17 @@ def run_menu_match(models: list, hands: int = 8, seed: int = 0,
             shown = "; ".join(f"seat {s}: {_cards(engine.hands[s])}" for s in range(4))
             won = ", ".join(f"{j.name}->{'A(0+2)' if j.winner_team == 0 else 'B(1+3)' if j.winner_team == 1 else '-'}"
                             for j in engine.jugadas)
-            log.past.append(f"- hand {h}: {shown}. Lances: {won}. "
-                            f"Piedras +{engine.hand_gain_a} seats 0+2 / "
-                            f"+{engine.hand_gain_b} seats 1+3.")
+            if V4:
+                shown = " | ".join(f"s{s} {' '.join(c.rank for c in sorted(engine.hands[s], key=lambda c: -RANK_GRANDE.get(c.rank, 0)))}"
+                                   for s in range(4))
+                won = ", ".join(f"{j.name} {'A' if j.winner_team == 0 else 'B' if j.winner_team == 1 else '-'}"
+                                for j in engine.jugadas)
+                log.past.append(f"- h{h}: {shown}. Won: {won}. "
+                                f"+{engine.hand_gain_a} A / +{engine.hand_gain_b} B.")
+            else:
+                log.past.append(f"- hand {h}: {shown}. Lances: {won}. "
+                                f"Piedras +{engine.hand_gain_a} seats 0+2 / "
+                                f"+{engine.hand_gain_b} seats 1+3.")
             hand_rows.append({"hand": h, "gain_a": engine.hand_gain_a,
                               "gain_b": engine.hand_gain_b,
                               "winner": engine.hand_winner})

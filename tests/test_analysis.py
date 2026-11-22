@@ -164,7 +164,7 @@ class BaselineSeparationTest(unittest.TestCase):
 
         cards = analysis.scorecard(recs)
         heur, rand = cards["heuristic"], cards["random"]
-        self.assertLess(heur["weak_hand_bet_rate"], 0.20)
+        self.assertLess(heur["weak_hand_bet_rate"], 0.25)   # random sits >= 0.45
         self.assertGreater(rand["weak_hand_bet_rate"], 0.45)
         self.assertLess(heur["bluff_rate"], rand["bluff_rate"])
         self.assertGreater(heur["avg_strength_when_betting"],

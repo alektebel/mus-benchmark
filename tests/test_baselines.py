@@ -163,7 +163,7 @@ class ScorecardAgreementTest(unittest.TestCase):
         from musbench.mus.deck import Card
         engine = MusEngine(rng=R(0))
         great = [Card(*c.split(" de ")) for c in
-                 ("as de copas", "dos de oros", "tres de bastos",
+                 ("as de copas", "dos de oros", "as de bastos",
                   "cuatro de espadas")]
         awful = [Card(*c.split(" de ")) for c in
                  ("caballo de copas", "sota de oros", "siete de bastos",

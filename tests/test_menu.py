@@ -143,3 +143,63 @@ class DeclarationsAreAutomaticTest(unittest.TestCase):
             opts = p.split("YOUR OPTIONS:")[1]
             self.assertNotIn("tengo", opts)
             self.assertNotIn("Declarations", p.split("YOUR OPTIONS:")[0][-200:])
+
+
+class V4PromptTest(unittest.TestCase):
+    """v4-menu: same information as v3, shorter text, rules first."""
+
+    def setUp(self):
+        p = mock.patch.object(menu, "V4", True)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_prompt_starts_with_rules_and_drops_suits(self):
+        e = MusEngine(rng=Random(0))
+        e.deal()
+        seat = e.current_seat
+        prompt = menu.build_menu_prompt(e, seat, menu.PublicLog(),
+                                        menu.menu_options(e, seat), 1, 8)
+        self.assertTrue(prompt.startswith(menu.RULES_V4))
+        self.assertIn("Chica, best to worst: as, dos, cuatro", prompt)
+        body = prompt[len(menu.RULES_V4):]
+        for palo in ("oros", "copas", "espadas", "bastos"):
+            self.assertNotIn(palo, body)
+        self.assertRegex(body, r'"choice": <1-\d+>')
+
+    def test_discards_with_repeated_ranks_are_listed_once(self):
+        from musbench.mus.deck import Card
+        e = MusEngine(rng=Random(0))
+        e.deal()
+        e.hands[0] = [Card("rey", "oros"), Card("rey", "copas"),
+                      Card("cinco", "oros"), Card("as", "bastos")]
+        e.phase, e.mus_want, e.current_seat = Phase.MUS_DRAW, {0}, 0
+        opts = menu.menu_options(e, 0)
+        labels = [o[0] for o in opts]
+        self.assertEqual(len(labels), len(set(labels)))
+        self.assertEqual(len(opts), 11)          # rank multisets of 1-4 cards
+        for _, action in opts:                   # every one is still legal
+            e2 = MusEngine(rng=Random(0))
+            e2.deal()
+            e2.hands[0] = list(e.hands[0])
+            e2.phase, e2.mus_want, e2.current_seat = Phase.MUS_DRAW, {0}, 0
+            e2.apply(0, action)
+
+
+class EffortSuffixTest(unittest.TestCase):
+    def test_effort_reaches_each_cli(self):
+        from musbench.agents.cli_seat import CliAgent
+        from pathlib import Path
+        a = CliAgent("x", "claude-cli", "claude-opus-5-5@low", 0, 0)
+        cmd = a._cmd(Path("o"))
+        self.assertEqual(a.model, "claude-opus-5-5")
+        self.assertEqual(cmd[cmd.index("--effort") + 1], "low")
+        c = CliAgent("x", "codex-cli", "gpt-6-sol@high", 0, 0)
+        self.assertIn('model_reasoning_effort="high"', c._cmd(Path("o")))
+        self.assertNotIn("--effort", CliAgent("x", "claude-cli", "claude-haiku-5-5", 0, 0)._cmd(Path("o")))
+
+    def test_unknown_effort_is_rejected(self):
+        from musbench.agents.cli_seat import CliAgent
+        with self.assertRaises(ValueError):
+            CliAgent("x", "claude-cli", "claude-opus-5-5@turbo", 0, 0)
+        with self.assertRaises(ValueError):
+            CliAgent("x", "cursor-cli", "composer-2.5@high", 0, 0)

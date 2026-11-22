@@ -34,7 +34,9 @@ from musbench.leaderboard import rating, render
 ROOT = Path(__file__).resolve().parents[3]
 HARNESS_MODULES = {"kernel": "musbench.harness.kernel_match",
                    "menu": "musbench.harness.menu"}
-CONFIG = ROOT / "benchmark" / "models.toml"
+# MUSBENCH_CONFIG points at another roster (e.g. benchmark/models-elo2.toml)
+# without touching the published one.
+CONFIG = Path(os.environ.get("MUSBENCH_CONFIG") or ROOT / "benchmark" / "models.toml")
 LEDGER = ROOT / "benchmark" / "matches.jsonl"
 
 
@@ -204,6 +206,8 @@ def run_jobs(cfg, jobs, workers, outdir: Path, job_timeout: float,
     print(f"[leaderboard] {len(jobs)} matches -> raw results in {outdir}", flush=True)
     spec = lambda mid: cfg["models"][mid]["spec"]  # noqa: E731
     module = HARNESS_MODULES[cfg["harness"]]
+    if cfg["protocol"] in ("v3-menu", "v4-menu"):   # read by the subprocess
+        os.environ["MENU_PROTOCOL"] = cfg["protocol"]
     ok = 0
     failed: list[tuple] = []
     with ThreadPoolExecutor(max_workers=workers) as ex:

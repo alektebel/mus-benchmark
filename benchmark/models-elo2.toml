@@ -1,0 +1,92 @@
+# elo-2 roster: v4-menu prompt, fixed chica ranks, every CLI model at two
+# thinking efforts. Use it without touching the published elo-1 board:
+#
+#     MUSBENCH_CONFIG=benchmark/models-elo2.toml python -m musbench.leaderboard swiss ...
+#
+# When elo-2 becomes the published board, copy this over models.toml.
+# Ids carry the effort so each level is rated as its own player; the spec's
+# @effort suffix is passed to the CLI (claude --effort, codex
+# model_reasoning_effort). Cursor and Jev have no effort setting here.
+
+[benchmark]
+protocol = "v4-menu"
+harness = "menu"
+hands = 8
+seeds = [0, 1, 2, 3]
+anchor = ""
+start_elo = 1000
+tournament = "elo-2"
+bootstrap = 2000
+
+[[model]]
+id = "claude-fable-5-2-low"
+name = "Claude Fable 5.2 · low"
+spec = "claude-cli:claude-fable-5-2@low"
+
+[[model]]
+id = "claude-fable-5-2-high"
+name = "Claude Fable 5.2 · high"
+spec = "claude-cli:claude-fable-5-2@high"
+
+[[model]]
+id = "claude-opus-5-5-low"
+name = "Claude Opus 5.5 · low"
+spec = "claude-cli:claude-opus-5-5@low"
+
+[[model]]
+id = "claude-opus-5-5-high"
+name = "Claude Opus 5.5 · high"
+spec = "claude-cli:claude-opus-5-5@high"
+
+[[model]]
+id = "claude-sonnet-5-5-low"
+name = "Claude Sonnet 5.5 · low"
+spec = "claude-cli:claude-sonnet-5-5@low"
+
+[[model]]
+id = "claude-sonnet-5-5-high"
+name = "Claude Sonnet 5.5 · high"
+spec = "claude-cli:claude-sonnet-5-5@high"
+
+[[model]]
+id = "claude-haiku-5-5-low"
+name = "Claude Haiku 5.5 · low"
+spec = "claude-cli:claude-haiku-5-5@low"
+
+[[model]]
+id = "claude-haiku-5-5-high"
+name = "Claude Haiku 5.5 · high"
+spec = "claude-cli:claude-haiku-5-5@high"
+
+[[model]]
+id = "gpt-6-sol-low"
+name = "GPT-6 Sol (Codex) · low"
+spec = "codex-cli:gpt-6-sol@low"
+
+[[model]]
+id = "gpt-6-sol-high"
+name = "GPT-6 Sol (Codex) · high"
+spec = "codex-cli:gpt-6-sol@high"
+
+[[model]]
+id = "gpt-5.6-sol-low"
+name = "GPT-5.6 Sol (Codex) · low"
+spec = "codex-cli:gpt-5.6-sol@low"
+
+[[model]]
+id = "gpt-5.6-sol-high"
+name = "GPT-5.6 Sol (Codex) · high"
+spec = "codex-cli:gpt-5.6-sol@high"
+
+[[model]]
+id = "cursor-composer-2.5"
+name = "Cursor Composer 2.5"
+spec = "cursor-cli:composer-2.5"
+provider = "Cursor"
+provider_icon = "cursor"
+model_icon = "cursor"
+
+[[model]]
+id = "typesafe:jev-latest"
+name = "Jev (TypeSafe)"
+spec = "typesafe:jev-latest"
