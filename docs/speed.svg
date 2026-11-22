@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="440" viewBox="0 0 880 440" role="img" aria-label="Elo against seconds per decision">
+<style>
+text{font-family:'Inter Tight','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
+.mono{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.card{fill:#ffffff;stroke:#e5e7e0} .t{fill:#181c21} .m{fill:#5d646d} .f{fill:#737a83}
+.grid{stroke:#e9ebe4} .base{stroke:#9aa0a8} .soft{fill:#f6f7f3} .line{stroke:#e5e7e0}
+.lime{fill:#d7f77d} .limeink{fill:#2f3d06} .quad{fill:#c7ef5c;fill-opacity:.28}
+.chip{fill:#ffffff;stroke:#e5e7e0} .ico{color:#16191d} .halo{paint-order:stroke;stroke:#ffffff;stroke-width:4px;stroke-linejoin:round}
+.pill{fill:#16191d} .pillt{fill:#ffffff}
+@media (prefers-color-scheme:dark){
+ .card{fill:#121518;stroke:#252a30} .t{fill:#eceef1} .m{fill:#a7aeb7} .f{fill:#8b929c}
+ .grid{stroke:#20252b} .base{stroke:#6f7680} .soft{fill:#1a1e23} .line{stroke:#252a30}
+ .lime{fill:#c9ef5f} .limeink{fill:#1d2604} .quad{fill:#c9ef5f;fill-opacity:.10}
+ .halo{stroke:#121518} .pill{fill:#eceef1} .pillt{fill:#121518}}
+.rise{transform-box:fill-box;transform-origin:50% 100%;animation:rise .7s cubic-bezier(.2,.7,.2,1) backwards}
+.fade{animation:fade .5s ease-out backwards}
+@keyframes rise{from{transform:scaleY(0)}}
+@keyframes fade{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.rise,.fade{animation:none}}
+</style>
+<rect x=".5" y=".5" width="879" height="439" rx="14" class="card"/>
+<text x="24" y="40" font-size="20" font-weight="600" class="t">Elo vs speed: who plays well, fast</text>
+<text x="24" y="62" font-size="12.5" class="m">Fitted Elo against the average seconds a model takes per decision</text>
+<rect x="64" y="92" width="576.8" height="125.0" class="quad"/>
+<text x="74" y="110" font-size="12" font-weight="600" class="t">Most attractive</text>
+<line x1="94.8" x2="94.8" y1="92" y2="376" class="grid"/><text x="94.8" y="392" font-size="11" text-anchor="middle" class="f mono">0.2s</text>
+<line x1="240.9" x2="240.9" y1="92" y2="376" class="grid"/><text x="240.9" y="392" font-size="11" text-anchor="middle" class="f mono">0.5s</text>
+<line x1="351.4" x2="351.4" y1="92" y2="376" class="grid"/><text x="351.4" y="392" font-size="11" text-anchor="middle" class="f mono">1s</text>
+<line x1="462.0" x2="462.0" y1="92" y2="376" class="grid"/><text x="462.0" y="392" font-size="11" text-anchor="middle" class="f mono">2s</text>
+<line x1="608.1" x2="608.1" y1="92" y2="376" class="grid"/><text x="608.1" y="392" font-size="11" text-anchor="middle" class="f mono">5s</text>
+<line x1="718.6" x2="718.6" y1="92" y2="376" class="grid"/><text x="718.6" y="392" font-size="11" text-anchor="middle" class="f mono">10s</text>
+<line x1="829.2" x2="829.2" y1="92" y2="376" class="grid"/><text x="829.2" y="392" font-size="11" text-anchor="middle" class="f mono">20s</text>
+<line x1="64" x2="852" y1="362.1" y2="362.1" class="grid"/><text x="56" y="366.1" font-size="11" text-anchor="end" class="f mono">700</text>
+<line x1="64" x2="852" y1="339.3" y2="339.3" class="grid"/><text x="56" y="343.3" font-size="11" text-anchor="end" class="f mono">750</text>
+<line x1="64" x2="852" y1="316.5" y2="316.5" class="grid"/><text x="56" y="320.5" font-size="11" text-anchor="end" class="f mono">800</text>
+<line x1="64" x2="852" y1="293.7" y2="293.7" class="grid"/><text x="56" y="297.7" font-size="11" text-anchor="end" class="f mono">850</text>
+<line x1="64" x2="852" y1="270.9" y2="270.9" class="grid"/><text x="56" y="274.9" font-size="11" text-anchor="end" class="f mono">900</text>
+<line x1="64" x2="852" y1="248.1" y2="248.1" class="grid"/><text x="56" y="252.1" font-size="11" text-anchor="end" class="f mono">950</text>
+<line x1="64" x2="852" y1="225.3" y2="225.3" class="grid"/><text x="56" y="229.3" font-size="11" text-anchor="end" class="f mono">1000</text>
+<line x1="64" x2="852" y1="202.5" y2="202.5" class="grid"/><text x="56" y="206.5" font-size="11" text-anchor="end" class="f mono">1050</text>
+<line x1="64" x2="852" y1="179.7" y2="179.7" class="grid"/><text x="56" y="183.7" font-size="11" text-anchor="end" class="f mono">1100</text>
+<line x1="64" x2="852" y1="156.9" y2="156.9" class="grid"/><text x="56" y="160.9" font-size="11" text-anchor="end" class="f mono">1150</text>
+<line x1="64" x2="852" y1="134.1" y2="134.1" class="grid"/><text x="56" y="138.1" font-size="11" text-anchor="end" class="f mono">1200</text>
+<line x1="64" x2="852" y1="111.3" y2="111.3" class="grid"/><text x="56" y="115.3" font-size="11" text-anchor="end" class="f mono">1250</text>
+<line x1="640.8" x2="640.8" y1="92" y2="376" class="base" stroke-dasharray="4 4"/><line x1="64" x2="852" y1="217.0" y2="217.0" class="base" stroke-dasharray="4 4"/>
+<text x="64" y="84" font-size="11" class="f">Elo · higher is better</text><text x="458" y="418" font-size="11" text-anchor="middle" class="f">Seconds per decision · log scale · lower is better (CLI seats include start-up)</text>
+<circle cx="628.4" cy="110.2" r="7" fill="#d97757" stroke="#ffffff" stroke-width="2"><title>Claude Haiku 5.5: 1252 Elo, 5.7 s per decision</title></circle>
+<circle cx="683.5" cy="148.7" r="7" fill="#10a37f" stroke="#ffffff" stroke-width="2"><title>GPT-5.6 Sol (Codex): 1168 Elo, 8.0 s per decision</title></circle>
+<line x1="611.4" y1="150.8" x2="622.4" y2="165.8" class="line"/>
+<circle cx="611.4" cy="150.8" r="7" fill="#d97757" stroke="#ffffff" stroke-width="2"><title>Claude Sonnet 5.5: 1163 Elo, 5.1 s per decision</title></circle>
+<circle cx="810.2" cy="184.0" r="7" fill="#5b6270" stroke="#ffffff" stroke-width="2"><title>Cursor Composer 2.5: 1091 Elo, 17.8 s per decision</title></circle>
+<circle cx="610.0" cy="250.0" r="7" fill="#d97757" stroke="#ffffff" stroke-width="2"><title>Claude Fable 5.2: 946 Elo, 5.1 s per decision</title></circle>
+<circle cx="99.6" cy="253.5" r="7" fill="#d9a930" stroke="#ffffff" stroke-width="2"><title>Jev (TypeSafe): 938 Elo, 0.2 s per decision</title></circle>
+<circle cx="668.5" cy="347.5" r="7" fill="#10a37f" stroke="#ffffff" stroke-width="2"><title>GPT-6 Sol (Codex): 732 Elo, 7.3 s per decision</title></circle>
+<line x1="652.4" y1="357.8" x2="663.4" y2="372.8" class="line"/>
+<circle cx="652.4" cy="357.8" r="7" fill="#d97757" stroke="#ffffff" stroke-width="2"><title>Claude Opus 5.5: 710 Elo, 6.6 s per decision</title></circle>
+<text x="639.4" y="114.2" font-size="12" class="t halo" text-anchor="start">Claude Haiku 5.5</text>
+<text x="694.5" y="152.7" font-size="12" class="t halo" text-anchor="start">GPT-5.6 Sol (Codex)</text>
+<text x="622.4" y="169.8" font-size="12" class="t halo" text-anchor="start">Claude Sonnet 5.5</text>
+<text x="799.2" y="188.0" font-size="12" class="t halo" text-anchor="end">Cursor Composer 2.5</text>
+<text x="621.0" y="254.0" font-size="12" class="t halo" text-anchor="start">Claude Fable 5.2</text>
+<text x="110.6" y="257.5" font-size="12" class="t halo" text-anchor="start">Jev (TypeSafe)</text>
+<text x="679.5" y="351.5" font-size="12" class="t halo" text-anchor="start">GPT-6 Sol (Codex)</text>
+<text x="663.4" y="376.8" font-size="12" class="t halo" text-anchor="start">Claude Opus 5.5</text>
+</svg>

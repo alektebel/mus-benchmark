@@ -4,22 +4,30 @@
 
 <!-- leaderboard:start -->
 
-<p align="center"><img src="docs/leaderboard.svg" alt="mus_bench Elo leaderboard" width="860"></p>
+<p align="center"><img src="docs/leaderboard.svg" alt="Best overall: Elo by model" width="880"></p>
 
-**Best at mus right now: Claude Haiku 5.5, 1252 Elo** (95% CI 1017–1460; #1 in 40% of resamples, 8 games). Its interval still overlaps #2, so the order is provisional.
+**Best at mus right now: Claude Haiku 5.5, 1252 Elo** (95% CI 1017–1460; #1 in 40% of resamples over 8 games). Its interval still overlaps #2, so the order is provisional.
 
-| # | Model | Provider | Elo | 95% CI | Live Elo | Games | W-L-D | Piedras/hand |
-|--:|:--|:--|--:|:-:|--:|--:|:-:|--:|
-| 1 | <img src="benchmark/icons/claude-color.svg" width="16" height="16" alt=""> **Claude Haiku 5.5**<br><sub><code>claude-haiku-5-5</code></sub> | <img src="benchmark/icons/anthropic.svg" width="16" height="16" alt=""> Anthropic | 1252 | 1017–1460 | 1061 | 8 | 6-2-0 | +0.5 |
-| 2 | <img src="benchmark/icons/openai.svg" width="16" height="16" alt=""> GPT-5.6 Sol (Codex)<br><sub><code>gpt-5.6-sol</code></sub> | <img src="benchmark/icons/openai.svg" width="16" height="16" alt=""> OpenAI | 1168 | 859–1443 | 999 | 2 | 1-1-0 | -0.4 |
-| 3 | <img src="benchmark/icons/claude-color.svg" width="16" height="16" alt=""> Claude Sonnet 5.5<br><sub><code>claude-sonnet-5-5</code></sub> | <img src="benchmark/icons/anthropic.svg" width="16" height="16" alt=""> Anthropic | 1163 | 929–1427 | 1045 | 7 | 5-2-0 | +0.7 |
-| 4 | <img src="benchmark/icons/cursor.svg" width="16" height="16" alt=""> Cursor Composer 2.5<br><sub><code>cursor-composer-2.5</code></sub> | <img src="benchmark/icons/cursor.svg" width="16" height="16" alt=""> Cursor | 1091 | 854–1358 | 1028 | 8 | 5-3-0 | -0.1 |
-| 5 | <img src="benchmark/icons/claude-color.svg" width="16" height="16" alt=""> Claude Fable 5.2<br><sub><code>claude-fable-5-2</code></sub> | <img src="benchmark/icons/anthropic.svg" width="16" height="16" alt=""> Anthropic | 946 | 747–1170 | 1000 | 2 | 1-1-0 | +0.7 |
-| 6 | <img src="benchmark/icons/typesafe.svg" width="16" height="16" alt=""> Jev (TypeSafe)<br><sub><code>typesafe:jev-latest</code></sub> | <img src="benchmark/icons/typesafe.svg" width="16" height="16" alt=""> TypeSafe | 938 | 695–1145 | 959 | 7 | 2-5-0 | -0.3 |
-| 7 | <img src="benchmark/icons/openai.svg" width="16" height="16" alt=""> GPT-6 Sol (Codex)<br><sub><code>gpt-6-sol</code></sub> | <img src="benchmark/icons/openai.svg" width="16" height="16" alt=""> OpenAI | 732 | 623–902 | 953 | 3 | 0-3-0 | -1.0 |
-| 8 | <img src="benchmark/icons/claude-color.svg" width="16" height="16" alt=""> Claude Opus 5.5<br><sub><code>claude-opus-5-5</code></sub> | <img src="benchmark/icons/anthropic.svg" width="16" height="16" alt=""> Anthropic | 710 | 590–893 | 955 | 3 | 0-3-0 | -1.3 |
+<p align="center"><img src="docs/speed.svg" alt="Elo against seconds per decision" width="880"></p>
 
-<sub>Every model starts at 1000. One game = two matches on the same deals with the seats swapped; whoever scores more piedras over the pair wins it. **Elo** is a Bradley–Terry fit over all 20 games of tournament `elo-1` (order-independent, field average 1000); **Live Elo** is classic K=32 updating in the order games finished. Every match is replayable from `benchmark/replays/`. Method: [docs/SCORING.md](docs/SCORING.md).</sub>
+<p align="center"><img src="docs/heatmap.svg" alt="Mus heatmap: the leader of each skill" width="880"></p>
+
+<p align="center"><img src="docs/skills.svg" alt="Best models per skill" width="880"></p>
+
+### Model comparison
+
+| Model | Provider | Harness | Elo | 95% CI | Games | W-L-D | Piedras/hand | Fold acc. | Call acc. | Bluff rate | s/decision |
+|:--|:--|:--|--:|:-:|--:|:-:|--:|--:|--:|--:|--:|
+| <img src="benchmark/icons/claude-color.svg" width="16" height="16" alt=""> **Claude Haiku 5.5** | Anthropic | Claude Code | 1252 | 1017–1460 | 8 | 6-2-0 | +0.5 | 83% | 26% | 14% | 5.7 |
+| <img src="benchmark/icons/openai.svg" width="16" height="16" alt=""> GPT-5.6 Sol (Codex) | OpenAI | Codex CLI | 1168 | 859–1443 | 2 | 1-1-0 | -0.4 | 79% | 35% | 5% | 8.0 |
+| <img src="benchmark/icons/claude-color.svg" width="16" height="16" alt=""> Claude Sonnet 5.5 | Anthropic | Claude Code | 1163 | 929–1427 | 7 | 5-2-0 | +0.7 | 83% | 45% | 1% | 5.1 |
+| <img src="benchmark/icons/cursor.svg" width="16" height="16" alt=""> Cursor Composer 2.5 | Cursor | Cursor CLI | 1091 | 854–1358 | 8 | 5-3-0 | -0.1 | 83% | 37% | 8% | 17.8 |
+| <img src="benchmark/icons/claude-color.svg" width="16" height="16" alt=""> Claude Fable 5.2 | Anthropic | Claude Code | 946 | 747–1170 | 2 | 1-1-0 | +0.7 | 77% | 22% | 2% | 5.1 |
+| <img src="benchmark/icons/typesafe.svg" width="16" height="16" alt=""> Jev (TypeSafe) | TypeSafe | API | 938 | 695–1145 | 7 | 2-5-0 | -0.3 | 74% | 29% | 10% | 0.2 |
+| <img src="benchmark/icons/openai.svg" width="16" height="16" alt=""> GPT-6 Sol (Codex) | OpenAI | Codex CLI | 732 | 623–902 | 3 | 0-3-0 | -1.0 | 88% | 17% | 5% | 7.3 |
+| <img src="benchmark/icons/claude-color.svg" width="16" height="16" alt=""> Claude Opus 5.5 | Anthropic | Claude Code | 710 | 590–893 | 3 | 0-3-0 | -1.3 | 77% | 43% | 0% | 6.6 |
+
+<sub>Every model starts at 1000. One game is two matches on the same deals with the seats swapped; whoever scores more piedras over the pair wins it. **Elo** is a Bradley–Terry fit over all 20 games of tournament `elo-1`, with bootstrap intervals. **Fold/call accuracy**: share of folds that gave up a losing lance, and of calls on a winning one, by the engine's ground truth. **Bluff rate**: bets from a bottom-third hand. Every match is replayable from `benchmark/replays/`. Method: [docs/SCORING.md](docs/SCORING.md).</sub>
 
 <!-- leaderboard:end -->
 

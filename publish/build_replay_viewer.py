@@ -22,19 +22,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from musbench.leaderboard import cli, elo, render, replay, skills  # noqa: E402
 
-BRAND = {"Anthropic": "#d97757", "OpenAI": "#10a37f", "Cursor": "#5b6270",
-         "TypeSafe": "#d9a930", "Thinking Machines": "#7c6cf0", "Google": "#4285f4",
-         "DeepSeek": "#4d6bfe", "Alibaba Cloud": "#ff6a00", "Zhipu AI": "#3859ff",
-         "Moonshot AI": "#16191e", "xAI": "#2b2b2b", "Mistral AI": "#fa520f",
-         "Meta": "#0866ff", "MiniMax": "#e2167e", "NVIDIA": "#76b900"}
-HARNESS = {"claude-cli": "Claude Code", "codex-cli": "Codex CLI", "cursor-cli": "Cursor CLI",
-           "typesafe": "API", "openrouter": "API", "nan": "API", "nvidia": "API",
-           "anthropic": "API"}
-
-
-def harness(spec: str) -> str:
-    head = spec.split(":", 1)[0] if ":" in spec else "nan"
-    return HARNESS.get(head, "offline" if spec in ("heuristic", "random") else "API")
+from musbench.leaderboard.board import harness  # noqa: E402
+from musbench.leaderboard.icons import BRAND  # noqa: E402
 
 KEEP = ("seat", "phase", "stage", "lance", "action", "cards", "drew", "public",
         "thought", "stake", "auto", "points_after", "would_win", "options")

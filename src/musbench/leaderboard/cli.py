@@ -457,6 +457,19 @@ def _rounded(row: dict) -> dict:
     return {k: (round(v, 3) if isinstance(v, float) else v) for k, v in row.items()}
 
 
+def _tournament_replays(cfg, ledger) -> list[dict]:
+    """Full replays of this tournament's rated matches, for the skill panels."""
+    from musbench.leaderboard import replay
+    ids = {m.get("match_id") for m in rated_matches(cfg, ledger)}
+    out = []
+    for row in ledger:
+        if row.get("match_id") in ids and row.get("replay"):
+            path = ROOT / row["replay"]
+            if path.exists():
+                out.append(replay.read(path))
+    return out
+
+
 def score_elo(cfg, ledger, args):
     """Elo leaderboard: README block, SVG, JSON, and the per-game history."""
     from musbench.leaderboard import elo
@@ -467,13 +480,17 @@ def score_elo(cfg, ledger, args):
     live = elo.incremental(games, start=cfg["start_elo"])
     meta = {k: render._meta(cfg["models"], k) for k in cfg["models"]}
     tag = cfg["tournament"]
-    sub = (f"Elo · everyone starts at {cfg['start_elo']:.0f} · 95% bootstrap interval · "
-           f"{res['games']} mirrored games ({2 * res['games']} matches) · tournament {tag}")
+    from musbench.leaderboard import board, skills as skills_mod
+    sk = skills_mod.compute(_tournament_replays(cfg, ledger))
     svg_path = ROOT / args.svg
     svg_path.parent.mkdir(parents=True, exist_ok=True)
-    svg_path.write_text(render.svg(render.elo_view(res, cfg["start_elo"]), meta,
-                                   cfg["protocol"], subtitle=sub,
-                                   value=lambda r: f"{r['elo']:.0f}"))
+    rel = Path(args.svg).parent
+    paths = {"overall": args.svg, "speed": str(rel / "speed.svg"),
+             "heatmap": str(rel / "heatmap.svg"), "skills": str(rel / "skills.svg")}
+    svg_path.write_text(board.overall_svg(res["rows"], meta, cfg["start_elo"], tag))
+    (ROOT / paths["speed"]).write_text(board.speed_svg(res["rows"], meta, sk))
+    (ROOT / paths["heatmap"]).write_text(board.heatmap_svg(sk, meta, skills_mod.SKILLS))
+    (ROOT / paths["skills"]).write_text(board.skills_svg(sk, meta, skills_mod.SKILLS))
     hist = elo.history(games, list(cfg["models"]), start=cfg["start_elo"],
                        anchor=cfg["anchor"])
     hist_path = ROOT / "benchmark" / f"elo_history_{tag}.jsonl"
@@ -487,7 +504,8 @@ def score_elo(cfg, ledger, args):
                   for r in res["rows"]]}, indent=2, ensure_ascii=False) + "\n")
     readme = ROOT / args.readme
     readme.write_text(render.splice_readme(
-        readme.read_text(), render.markdown_elo(res, live, meta, cfg, args.svg)))
+        readme.read_text(), board.markdown(res, live, meta, sk, cfg, paths,
+                                           render.START, render.END)))
     cmd_elo(cfg, ledger, args)
     print(f"wrote {args.readme}, {args.svg}, {args.json}, {hist_path.relative_to(ROOT)}")
 
