@@ -1,4 +1,4 @@
-# elo-2 roster: v4-menu prompt, fixed chica ranks, every CLI model at two
+# elo-2 roster: v4-menu prompt, fixed chica ranks, la real, every CLI model at two
 # thinking efforts. Use it without touching the published elo-1 board:
 #
 #     MUSBENCH_CONFIG=benchmark/models-elo2.toml python -m musbench.leaderboard swiss ...

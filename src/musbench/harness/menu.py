@@ -96,7 +96,8 @@ MUS RULES (40-card Spanish deck; suits never matter; 2 vs 2, partners sit opposi
 - Points: rey, tres, caballo, sota = 10; as, dos = 1; others face value.
 - Pares: par < medias (three alike) < duples (two pairs or four alike);
   within a kind, higher cards win.
-- Juego: 31 > 32 > 40 > 39 > 38 > 37 > 36 > 35 > 34 > 33.
+- Juego: la real (31 made of three sietes and a sota) > any other 31 > 32 >
+  40 > 39 > 38 > 37 > 36 > 35 > 34 > 33.
 - Only seats that HAVE pares (or juego) bet in that lance.
 - Bets: envido 2, y-yo +2, reenvido doubles, órdago = the whole vaca.
   quiero accepts (paid when cards are shown at the end of the hand);
@@ -251,6 +252,8 @@ def build_menu_prompt(engine: MusEngine, seat: int, log: PublicLog,
     mv, tv = ((engine.vacas_a, engine.vacas_b) if team == 0
               else (engine.vacas_b, engine.vacas_a))
     if V4:
+        if engine.la_real and engine.is_real(hand):
+            juego = "juego 31 (la real)"
         return _build_v4(engine, seat, log, options, hand_no, hands, team,
                          hand, pares, juego, mine, theirs, mv, tv)
     lines = [
@@ -409,6 +412,7 @@ def run_menu_match(models: list, hands: int = 8, seed: int = 0,
     t0 = time.monotonic()
     deadline = t0 + MATCH_TIMEOUT
     engine = MusEngine(rng=Random(seed))
+    engine.la_real = V4
     agents = [_make_agent(m, s, TEAM_OF[s], seed) for s, m in enumerate(models)]
     for a in agents:
         a.invalid = 0

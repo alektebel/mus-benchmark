@@ -329,3 +329,34 @@ class OrdagoAndTieRulesTest(unittest.TestCase):
             2: ["as de oros", "dos de oros", "cuatro de oros", "cinco de oros"],
             3: ["as de copas", "dos de copas", "cuatro de copas", "cinco de copas"]})
         self.assertIsNone(e._lance_winner("Pares"))
+
+
+class LaRealTest(unittest.TestCase):
+    """La real (three sietes and a sota) beats every other 31 when enabled."""
+
+    def _hands(self):
+        from musbench.mus.deck import Card
+        real = [Card("siete", "oros"), Card("siete", "copas"),
+                Card("siete", "bastos"), Card("sota", "oros")]
+        other31 = [Card("rey", "oros"), Card("caballo", "copas"),
+                   Card("sota", "bastos"), Card("as", "oros")]
+        filler = [Card("cuatro", "oros"), Card("cuatro", "copas"),
+                  Card("dos", "bastos"), Card("as", "copas")]
+        return real, other31, filler
+
+    def test_real_beats_a_31_held_by_the_mano(self):
+        real, other31, filler = self._hands()
+        e = MusEngine(rng=Random(0))
+        e.la_real = True
+        e.hands = {0: other31, 1: real, 2: filler, 3: list(filler)}
+        e.mano = 0                       # the plain 31 would win the tie
+        self.assertTrue(MusEngine.is_real(real))
+        self.assertFalse(MusEngine.is_real(other31))
+        self.assertEqual(e._lance_winner("Juego"), 1)
+
+    def test_off_by_default_so_older_protocols_replay_exactly(self):
+        real, other31, filler = self._hands()
+        e = MusEngine(rng=Random(0))
+        e.hands = {0: other31, 1: real, 2: filler, 3: list(filler)}
+        e.mano = 0
+        self.assertEqual(e._lance_winner("Juego"), 0)

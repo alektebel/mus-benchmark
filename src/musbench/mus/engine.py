@@ -60,6 +60,9 @@ RANK_CHICA = {"as": 11, "dos": 10, "cuatro": 8, "cinco": 7, "seis": 6,
               "siete": 5, "sota": 2, "caballo": 1, "tres": 0, "rey": 0}
 
 JUEGO_TOTALS = tuple(range(31, 41))
+# La real: 31 made of three sietes and a sota, the best juego of all. Optional
+# (off by default so older protocols replay exactly); v4-menu turns it on.
+REAL_RANK = 11
 JUEGO_RANK = {31: 10, 32: 9, 40: 8, 39: 7, 38: 6, 37: 5, 36: 4, 35: 3, 34: 2, 33: 1}
 
 VACA_TARGET = 40
@@ -129,6 +132,7 @@ class MusEngine:
         self.deal_rng = deal_rng
         self.card_points = dict(card_points or CARD_POINTS)
         self.juego_totals = JUEGO_TOTALS
+        self.la_real = False
         self.reset()
 
     # ---------------- state ----------------
@@ -214,9 +218,17 @@ class MusEngine:
             return (2, (r,)) if counts[r] >= 3 else (1, (r,))
         return (0, ())
 
+    @staticmethod
+    def is_real(hand) -> bool:
+        """La real: three sietes and a sota (7+7+7+10 = 31)."""
+        ranks = [c.rank for c in hand]
+        return len(ranks) == 4 and ranks.count("siete") == 3 and ranks.count("sota") == 1
+
     def _juego_value(self, hand):
         total = self.hand_points(hand, self.card_points)
         if total in self.juego_totals:
+            if self.la_real and self.is_real(hand):
+                return (1, REAL_RANK)
             return (1, JUEGO_RANK[total])
         return (0, total)
 

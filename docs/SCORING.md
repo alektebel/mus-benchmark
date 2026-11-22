@@ -122,6 +122,11 @@ reading `models.toml` (`elo-1`) until the file is copied over.
   as 3 at Chica, the third-best card. That gave the wrong Chica winner in 48 of
   the 373 `elo-1` hands (13%) and skewed the Chica ground truth used by the
   skills. `elo-1` is a pilot for this reason too.
+* **La real.** 31 made of three sietes and a sota is the best juego of all,
+  above any other 31. Its bonus is the same as any 31 (3). The rule is
+  `MusEngine.la_real`, off by default so v3 matches replay exactly. v4-menu turns
+  it on and tells the seat "juego 31 (la real)" when it holds one. With only
+  four sietes in the deck, at most one seat can hold it.
 * **Thinking effort is part of the model id.** Every CLI model is on the
   roster twice, `<id>-low` and `<id>-high`. The spec suffix `@low` / `@high`
   becomes `claude --effort` or Codex `model_reasoning_effort`, so each level is

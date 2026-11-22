@@ -161,6 +161,7 @@ class V4PromptTest(unittest.TestCase):
                                         menu.menu_options(e, seat), 1, 8)
         self.assertTrue(prompt.startswith(menu.RULES_V4))
         self.assertIn("Chica, best to worst: as, dos, cuatro", prompt)
+        self.assertIn("la real (31 made of three sietes and a sota)", prompt)
         body = prompt[len(menu.RULES_V4):]
         for palo in ("oros", "copas", "espadas", "bastos"):
             self.assertNotIn(palo, body)
@@ -203,3 +204,20 @@ class EffortSuffixTest(unittest.TestCase):
             CliAgent("x", "claude-cli", "claude-opus-5-5@turbo", 0, 0)
         with self.assertRaises(ValueError):
             CliAgent("x", "cursor-cli", "composer-2.5@high", 0, 0)
+
+
+class LaRealInMatchTest(unittest.TestCase):
+    def test_v4_matches_play_with_la_real_and_v3_without(self):
+        seen = {}
+        orig = menu.MusEngine
+
+        def spy(*a, **k):
+            e = orig(*a, **k)
+            seen["engine"] = e
+            return e
+        for v4 in (True, False):
+            with mock.patch.object(menu, "V4", v4), \
+                 mock.patch.object(menu, "MusEngine", spy), \
+                 mock.patch.object(StrictAgent, "decide", _fake_decide(Random(1), [])):
+                menu.run_menu_match(["m", "random", "m", "random"], hands=1, seed=0)
+            self.assertIs(seen["engine"].la_real, v4)
