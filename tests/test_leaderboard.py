@@ -112,6 +112,34 @@ class RenderTest(unittest.TestCase):
         self.assertNotIn("var(--", svg)   # rsvg/non-browser renderers
 
 
+class IconTest(unittest.TestCase):
+    def test_guess_provider_and_model_logos(self):
+        from musbench.leaderboard import icons
+        g = icons.guess("gemma4")
+        self.assertEqual((g["provider"], g["provider_icon"], g["model_icon"]),
+                         ("Google", "google-color", "gemma-color"))
+        self.assertEqual(icons.guess("anthropic:claude-sonnet-5-5")["provider"], "Anthropic")
+        self.assertEqual(icons.guess("mystery-model")["provider_icon"], "")
+
+    def test_svg_inlines_both_logos_with_unique_ids(self):
+        res = rating.rate(_synthetic({"gemma4": 1.0, "qwen3.6": 0.0}, 0.0), n_boot=20)
+        svg = render.svg(res, {}, "v2")
+        self.assertIn("Google", svg)
+        self.assertIn("Alibaba Cloud", svg)
+        self.assertEqual(svg.count('class="ico"'), 4)   # provider + model per row
+        ids = __import__("re").findall(r' id="([^"]+)"', svg)
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertNotIn("<script", svg)
+
+    def test_sanitize_strips_script_and_handlers(self):
+        from musbench.leaderboard import icons
+        bad = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+               '<script>alert(1)</script><path d="M0 0" onclick="x()"/></svg>')
+        _, inner = icons._sanitize(bad, "t")
+        self.assertNotIn("script", inner)
+        self.assertNotIn("onclick", inner)
+
+
 class OfflineRunTest(unittest.TestCase):
     """`run` end to end with free baseline seats: subprocess, ledger, score."""
 

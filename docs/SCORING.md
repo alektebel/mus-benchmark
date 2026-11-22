@@ -92,6 +92,16 @@ Otherwise add a seat class (see `anthropic_seat.py`).
 Cost: a roster of *N* models means 2 × N × |seeds| new matches per model.
 At 8 hands that's about 170–300 LLM calls per match.
 
+### Logos
+
+Each row shows the provider's logo, the model's own logo (when it differs,
+e.g. Google + Gemma) and the exact model id. They are picked from the id by
+`FAMILIES` in `src/musbench/leaderboard/icons.py`. For a family it doesn't
+know, add a line there, or set `provider`, `provider_icon` and `model_icon`
+on the `[[model]]` block. Fetch a missing logo with
+`python -m musbench.leaderboard icon <slug>` (LobeHub slugs, e.g.
+`perplexity-color`).
+
 `python -m musbench.leaderboard list` shows the roster, how many rated
 matches each model has, and how many of its scheduled matches are missing.
 
@@ -103,6 +113,7 @@ matches each model has, and how many of its scheduled matches are missing.
 | `benchmark/matches.jsonl` | append-only ledger, one compact row per match; the source of truth |
 | `benchmark/leaderboard.json` | last computed leaderboard (machine-readable) |
 | `docs/leaderboard.svg` | the animated chart at the top of the README |
+| `benchmark/icons/` | provider and model logos (LobeHub, MIT) |
 | `src/musbench/leaderboard/` | `rating.py` (fit + bootstrap), `render.py`, `cli.py` |
 
 ## Provenance of the current data

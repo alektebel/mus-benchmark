@@ -2,17 +2,17 @@
 
 <!-- leaderboard:start -->
 
-<p align="center"><img src="docs/leaderboard.svg" alt="mus_bench leaderboard" width="760"></p>
+<p align="center"><img src="docs/leaderboard.svg" alt="mus_bench leaderboard" width="860"></p>
 
 **Best at mus right now: Jev (TypeSafe), +9.5 piedras/hand** (95% CI +5.5 to +13.1; ranked #1 in 100% of 1974 bootstrap resamples).
 
-| # | Model | Score | 95% CI | P(#1) | Matches | Opponents | Fallback % † |
-|--:|:--|--:|:-:|--:|--:|--:|--:|
-| 1 | **Jev (TypeSafe)** ⚠️ | +9.5 | +5.5 … +13.1 | 100% | 8 | 1 | 0.2% |
-| 2 | GLM-5.3 Flash | -1.1 | -4.0 … +1.9 | 0% | 24 | 3 | 1.7% |
-| 3 | Gemma 4 | -1.7 | -6.7 … +3.3 | 0% | 23 | 3 | 4.3% |
-| 4 | Qwen 3.6 | -2.0 | -6.6 … +2.8 | 0% | 23 | 3 | 2.7% |
-| 5 | DeepSeek-V4 Flash | -4.6 | -7.3 … -1.8 | 0% | 32 | 4 | 1.5% |
+| # | Model | Provider | Score | 95% CI | P(#1) | Matches | Opponents | Fallback % † |
+|--:|:--|:--|--:|:-:|--:|--:|--:|--:|
+| 1 | <img src="benchmark/icons/typesafe.svg" width="16" height="16" alt=""> **Jev (TypeSafe)** ⚠️<br><sub><code>typesafe:jev-latest</code></sub> | <img src="benchmark/icons/typesafe.svg" width="16" height="16" alt=""> TypeSafe | +9.5 | +5.5 … +13.1 | 100% | 8 | 1 | 0.2% |
+| 2 | <img src="benchmark/icons/chatglm-color.svg" width="16" height="16" alt=""> GLM-5.3 Flash<br><sub><code>glm5.3-flash</code></sub> | <img src="benchmark/icons/zhipu-color.svg" width="16" height="16" alt=""> Zhipu AI | -1.1 | -4.0 … +1.9 | 0% | 24 | 3 | 1.7% |
+| 3 | <img src="benchmark/icons/gemma-color.svg" width="16" height="16" alt=""> Gemma 4<br><sub><code>gemma4</code></sub> | <img src="benchmark/icons/google-color.svg" width="16" height="16" alt=""> Google | -1.7 | -6.7 … +3.3 | 0% | 23 | 3 | 4.3% |
+| 4 | <img src="benchmark/icons/qwen-color.svg" width="16" height="16" alt=""> Qwen 3.6<br><sub><code>qwen3.6</code></sub> | <img src="benchmark/icons/alibabacloud-color.svg" width="16" height="16" alt=""> Alibaba Cloud | -2.0 | -6.6 … +2.8 | 0% | 23 | 3 | 2.7% |
+| 5 | <img src="benchmark/icons/deepseek-color.svg" width="16" height="16" alt=""> DeepSeek-V4 Flash<br><sub><code>deepseek-v4-flash</code></sub> | <img src="benchmark/icons/deepseek-color.svg" width="16" height="16" alt=""> DeepSeek | -4.6 | -7.3 … -1.8 | 0% | 32 | 4 | 1.5% |
 
 <sub>Score: piedras per hand won against an average opponent of this field, from a seat-corrected paired rating over 55 mirrored matches (protocol `v2`). ⚠️ = rated against a single opponent; its score leans on that opponent's rating. † Share of LLM decisions that fell back to a default action; for the imported v2 matches this is per match (both teams), not per model. Method and how to add a model: [docs/SCORING.md](docs/SCORING.md). Regenerate with `python -m musbench.leaderboard score`.</sub>
 

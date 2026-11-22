@@ -10,6 +10,12 @@
 # never change once matches exist; `spec` is anything the harness accepts
 # (`provider:model`, a bare model name for the default provider, `anthropic:...`,
 # `typesafe:...`, or an offline baseline such as `heuristic`).
+#
+# Logos are picked from the id (gemma -> Google + Gemma, qwen -> Alibaba Cloud +
+# Qwen, ...; see FAMILIES in src/musbench/leaderboard/icons.py). Override with
+# optional `provider = "..."`, `provider_icon = "slug"`, `model_icon = "slug"`,
+# where slug is a file in benchmark/icons/ (`python -m musbench.leaderboard icon
+# <slug>` downloads any LobeHub logo).
 
 [benchmark]
 # Matches are only pooled within one protocol. Bump this whenever the engine,

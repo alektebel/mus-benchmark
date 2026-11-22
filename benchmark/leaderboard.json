@@ -20,7 +20,10 @@
       "raw_per_hand": 14.078125,
       "fallback_rate": 0.0015255530129672007,
       "rank": 1,
-      "name": "Jev (TypeSafe)"
+      "name": "Jev (TypeSafe)",
+      "provider": "TypeSafe",
+      "provider_icon": "typesafe",
+      "model_icon": "typesafe"
     },
     {
       "model": "glm5.3-flash",
@@ -35,7 +38,10 @@
       "raw_per_hand": 1.6666666666666667,
       "fallback_rate": 0.01743137647765979,
       "rank": 2,
-      "name": "GLM-5.3 Flash"
+      "name": "GLM-5.3 Flash",
+      "provider": "Zhipu AI",
+      "provider_icon": "zhipu-color",
+      "model_icon": "chatglm-color"
     },
     {
       "model": "gemma4",
@@ -50,7 +56,10 @@
       "raw_per_hand": 1.0,
       "fallback_rate": 0.04291920069504779,
       "rank": 3,
-      "name": "Gemma 4"
+      "name": "Gemma 4",
+      "provider": "Google",
+      "provider_icon": "google-color",
+      "model_icon": "gemma-color"
     },
     {
       "model": "qwen3.6",
@@ -65,7 +74,10 @@
       "raw_per_hand": 0.4076086956521739,
       "fallback_rate": 0.0273109243697479,
       "rank": 4,
-      "name": "Qwen 3.6"
+      "name": "Qwen 3.6",
+      "provider": "Alibaba Cloud",
+      "provider_icon": "alibabacloud-color",
+      "model_icon": "qwen-color"
     },
     {
       "model": "deepseek-v4-flash",
@@ -80,7 +92,10 @@
       "raw_per_hand": -5.78125,
       "fallback_rate": 0.014823649684784461,
       "rank": 5,
-      "name": "DeepSeek-V4 Flash"
+      "name": "DeepSeek-V4 Flash",
+      "provider": "DeepSeek",
+      "provider_icon": "deepseek-color",
+      "model_icon": "deepseek-color"
     }
   ]
 }

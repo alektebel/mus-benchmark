@@ -7,6 +7,7 @@
     run ID [--workers N]      play ID against every other roster model, every
                               seed, both seatings; append to the ledger
     score                     rate the ledger, rewrite README block + SVG + JSON
+    icon SLUG                 download a LobeHub logo into benchmark/icons/
 
 The ledger (benchmark/matches.jsonl) is append-only and committed; it is the
 single source of truth for the score. `run` only plays matches the ledger
@@ -49,7 +50,9 @@ def load_config(path: Path = CONFIG) -> dict:
             "anchor": bench.get("anchor", ""),
             "bootstrap": int(bench.get("bootstrap", 2000)),
             "models": {m["id"]: {"name": m.get("name", m["id"]),
-                                 "spec": m.get("spec", m["id"])}
+                                 "spec": m.get("spec", m["id"]),
+                                 **{k: m[k] for k in ("provider", "provider_icon",
+                                                      "model_icon") if k in m}}
                        for m in models}}
 
 
@@ -204,21 +207,24 @@ def cmd_run(cfg, ledger, args):
 def cmd_score(cfg, ledger, args):
     rated = rated_matches(cfg, ledger)
     result = rating.rate(rated, anchor=cfg["anchor"], n_boot=cfg["bootstrap"])
-    names = {k: v["name"] for k, v in cfg["models"].items()}
+    meta = {k: render._meta(cfg["models"], k) for k in cfg["models"]}
+    names = {k: v["name"] for k, v in meta.items()}
     unrated = [names[m] for m in cfg["models"] if m not in {r["model"] for r in result["rows"]}]
     svg_path = ROOT / args.svg
     svg_path.parent.mkdir(parents=True, exist_ok=True)
-    svg_path.write_text(render.svg(result, names, cfg["protocol"]))
+    svg_path.write_text(render.svg(result, meta, cfg["protocol"]))
     (ROOT / args.json).write_text(json.dumps(
         {"protocol": cfg["protocol"], "anchor": cfg["anchor"],
          "seat_bias": result["seat_bias"], "n_matches": result["n_matches"],
          "n_boot": result["n_boot"], "top_separated": result.get("top_separated"),
          "unrated": unrated,
-         "rows": [dict(r, name=names.get(r["model"], r["model"])) for r in result["rows"]]},
+         "rows": [dict(r, **{k: meta.get(r["model"], {}).get(k) for k in
+                            ("name", "provider", "provider_icon", "model_icon")})
+                  for r in result["rows"]]},
         indent=2, ensure_ascii=False) + "\n")
     readme = ROOT / args.readme
     readme.write_text(render.splice_readme(
-        readme.read_text(), render.markdown(result, names, cfg["protocol"], args.svg)))
+        readme.read_text(), render.markdown(result, meta, cfg["protocol"], args.svg)))
     for r in result["rows"]:
         print(f"  {r['rank']}. {names.get(r['model'], r['model']):22} "
               f"{r['score']:+6.2f}  [{r['ci_low']:+.2f}, {r['ci_high']:+.2f}]  "
@@ -226,6 +232,11 @@ def cmd_score(cfg, ledger, args):
     if unrated:
         print(f"  not rated yet (no {cfg['protocol']} matches): {', '.join(unrated)}")
     print(f"wrote {args.readme}, {args.svg}, {args.json}")
+
+
+def cmd_icon(cfg, ledger, args):
+    from musbench.leaderboard import icons
+    print(f"saved {icons.fetch(args.slug).relative_to(ROOT)}")
 
 
 def main(argv=None):
@@ -246,6 +257,8 @@ def main(argv=None):
         q.add_argument("--workers", type=int, default=1)
         q.add_argument("--job-timeout", type=float, default=7500)
         q.add_argument("--out", default=None, help="raw match JSON directory")
+    i = sub.add_parser("icon", help="download a LobeHub logo, e.g. perplexity-color")
+    i.add_argument("slug")
     s = sub.add_parser("score")
     s.add_argument("--readme", default="README.md")
     s.add_argument("--svg", default="docs/leaderboard.svg")
@@ -253,7 +266,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     cfg, ledger = load_config(), load_ledger()
     {"list": cmd_list, "add": cmd_add, "schedule": cmd_schedule,
-     "run": cmd_run, "score": cmd_score}[args.cmd](cfg, ledger, args)
+     "run": cmd_run, "score": cmd_score, "icon": cmd_icon}[args.cmd](cfg, ledger, args)
 
 
 if __name__ == "__main__":
