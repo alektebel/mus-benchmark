@@ -451,6 +451,12 @@ def cmd_score(cfg, ledger, args):
     print(f"wrote {args.readme}, {args.svg}, {args.json}")
 
 
+def _rounded(row: dict) -> dict:
+    """Short, platform-stable floats: last-digit noise differs across Python
+    versions and would make the committed JSON flap in CI."""
+    return {k: (round(v, 3) if isinstance(v, float) else v) for k, v in row.items()}
+
+
 def score_elo(cfg, ledger, args):
     """Elo leaderboard: README block, SVG, JSON, and the per-game history."""
     from musbench.leaderboard import elo
@@ -475,7 +481,7 @@ def score_elo(cfg, ledger, args):
     (ROOT / args.json).write_text(json.dumps(
         {"tournament": tag, "protocol": cfg["protocol"], "start_elo": cfg["start_elo"],
          "games": res["games"], "n_boot": res["n_boot"],
-         "rows": [dict(r, live=round(live.get(r["model"], cfg["start_elo"]), 1),
+         "rows": [dict(_rounded(r), live=round(live.get(r["model"], cfg["start_elo"]), 1),
                        **{k: meta[r["model"]].get(k) for k in
                           ("name", "provider", "provider_icon", "model_icon")})
                   for r in res["rows"]]}, indent=2, ensure_ascii=False) + "\n")
