@@ -96,6 +96,12 @@ svg .halo{paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoi
 .row .track i{display:block;height:100%;border-radius:3px}
 .row small{grid-column:2/4;color:var(--faint);font-size:11.5px;margin-top:-6px}
 .empty{color:var(--faint);font-size:13px;padding:8px 0}
+/* reads, bluffs, folds */
+.trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.trio .card p.def{color:var(--mut);font-size:12.5px;margin:4px 0 14px;min-height:3em}
+.row.few{opacity:.45}
+.row .track{position:relative}
+.row .track b{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--fg);opacity:.55}
 /* lists */
 .lists{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 /* table */
@@ -113,7 +119,7 @@ tr:last-child td{border-bottom:0}
 .dash{color:var(--faint)}
 @media (max-width:900px){
   .tiles{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:104px}
-  .cards,.lists{grid-template-columns:1fr}
+  .cards,.lists,.trio{grid-template-columns:1fr}
 }
 @media (max-width:520px){
   .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -128,7 +134,7 @@ tr:last-child td{border-bottom:0}
 <div class="wrap">
   <nav class="top" aria-label="Main">
     <a class="brand" href="#top"><i><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="2" width="9" height="13" rx="2" fill="#d7f77d"/><rect x="8" y="5" width="9" height="13" rx="2" fill="#fff"/></svg></i>mus·bench</a>
-    <div class="links"><a href="#overall">Standings</a><a href="#value">Speed</a><a href="#heatmap">Skills</a><a href="#best">Best per skill</a><a href="#compare">Compare</a></div>
+    <div class="links"><a href="#overall">Standings</a><a href="#play">How they play</a><a href="#value">Speed</a><a href="#heatmap">Skills</a><a href="#best">Best per skill</a><a href="#compare">Compare</a></div>
     <a class="cta" href="replays.html">▶ Watch matches</a>
   </nav>
 
@@ -147,6 +153,12 @@ tr:last-child td{border-bottom:0}
       <div class="chart" id="ov-chart"></div>
       <div class="foot"><span id="ov-foot"></span><span id="ov-note"></span></div>
     </div>
+  </section>
+
+  <section id="play">
+    <div class="phead" style="margin-bottom:12px"><div><h2>How they play: reads, bluffs and folds</h2>
+      <div class="sub">Every decision is checked against the engine, which sees all four hands.</div></div></div>
+    <div class="trio" id="trio"></div>
   </section>
 
   <section id="value">
@@ -338,6 +350,33 @@ function drawCards(){
   }
 }
 
+/* ---------- reads, bluffs, folds: always visible ---------- */
+const TRIO = [
+  {k:"read_accuracy", n:"read_n", title:"Reading the opponent", def:"When a rival bets: calls on lances it would win plus folds on lances it would lose."},
+  {k:"bluff_success", n:"bluff_n", title:"Successful bluffs", def:"Of its bets from a bottom-third hand, the share that still took the lance."},
+  {k:"fold_accuracy", n:"fold_n", title:"Successful folds", def:"Of its folds, the share that gave up a lance it would have lost."}];
+function drawTrio(){
+  const box = $("#trio"); box.innerHTML = "";
+  for (const t of TRIO){
+    const all = Object.entries(D.skills).filter(([id,s]) => D.models[id] && s[t.k] != null)
+      .map(([id,s]) => ({id, v:s[t.k], n:s[t.n]||0}));
+    const ok = all.filter(x=>x.n>=MIN_N).sort((a,b)=>b.v-a.v), few = all.filter(x=>x.n<MIN_N).sort((a,b)=>b.n-a.n);
+    // pooled field average over models with enough decisions
+    const tot = ok.reduce((a,x)=>a+x.n,0), avg = tot ? ok.reduce((a,x)=>a+x.v*x.n,0)/tot : null;
+    const row = (x,i,isFew) => `<div class="row${isFew?" few":""}" title="${x.n} decisions">
+        <span class="rank${!isFew&&i===0?" first":""}">${isFew?"–":String(i+1).padStart(2,"0")}</span>
+        <span class="nm">${chip(x.id)}<span>${esc(M(x.id).name)}</span></span><span class="v">${pct(x.v)}</span>
+        <span class="track"><i style="width:${(x.v*100).toFixed(1)}%;background:${M(x.id).color}"></i>${avg!=null?`<b style="left:${(avg*100).toFixed(1)}%"></b>`:""}</span>
+        <small>${x.n} decision${x.n===1?"":"s"}${isFew?" · too few to rank":""}</small></div>`;
+    const c = document.createElement("div"); c.className = "panel card";
+    c.innerHTML = `<div class="phead" style="margin-bottom:0"><h3>${esc(t.title)}</h3><span class="pill">vs ground truth</span></div>
+      <p class="def">${esc(t.def)}</p>
+      <div class="rows">${ok.length ? ok.map((x,i)=>row(x,i,false)).join("") : `<p class="empty">Not enough decisions yet.</p>`}${few.map(x=>row(x,0,true)).join("")}</div>
+      <div class="foot" style="margin-top:14px"><span>${avg!=null?`Line marks the field average, ${pct(avg)}.`:""}</span><span>Ranked at ${MIN_N}+ decisions</span></div>`;
+    box.append(c);
+  }
+}
+
 /* ---------- lists ---------- */
 function drawLists(){
   const ids = Object.keys(D.models).filter(id => D.skills[id]);
@@ -396,7 +435,7 @@ async function boot(){
   $("#d-tour").textContent = `Tournament: ${D.tournament} · ${D.protocol}`;
   const qm = new URLSearchParams(location.search).get("metric");
   if (METRICS.some(m => m.k === qm)) metric = qm;
-  drawOverall(); drawScatter(); drawHeatmap(); drawCards(); drawLists(); drawTable();
+  drawOverall(); drawTrio(); drawScatter(); drawHeatmap(); drawCards(); drawLists(); drawTable();
   $("#q").addEventListener("input", drawTable);
 }
 boot();
