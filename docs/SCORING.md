@@ -94,6 +94,15 @@ Head-to-head, separating two models takes:
 The margin is far more efficient: mirrored games vary by about 4.6
 piedras/hand, so 9 games resolve a 3-piedras/hand difference.
 
+### Tournament `elo-1`
+
+`elo-1` began as a 20-game pilot. It continues with the same engine and
+scoring after small prompt changes. Each seat is now told its team. Órdago is
+listed last in the pre-draw menu. The rules explain how a pre-draw órdago is
+decided. Tío Perete is now a menu choice instead of automatic. Invalid
+answers are re-asked and never replaced by a default move (the pilot had
+none). Each match's `commit` in the ledger records the exact code it ran on.
+
 ### A fresh tournament
 
 Only ledger rows tagged with `tournament` (in `benchmark/models.toml`) count.

@@ -44,6 +44,9 @@ def trim(rp: dict) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
+    ap.add_argument("--standalone", action="store_true",
+                    help="wrap index.html in a full HTML document (for static hosting; "
+                         "artifact publishing adds its own wrapper)")
     args = ap.parse_args()
     out = Path(args.out)
     (out / "icons").mkdir(parents=True, exist_ok=True)
@@ -108,7 +111,14 @@ def main():
         "<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>\n"
         + viewer.replace('<div class="wrap">', '</head><body>\n<div class="wrap">', 1)
         + "\n</body></html>\n")
-    shutil.copy(ROOT / "publish" / "leaderboard_site" / "index.html", out / "index.html")
+    page = (ROOT / "publish" / "leaderboard_site" / "index.html").read_text()
+    if args.standalone:
+        page = ("<!doctype html>\n<html lang=\"en\"><head><meta name=\"viewport\" "
+                "content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n"
+                "<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>\n"
+                + page.replace('<div class="banner">', '</head><body>\n<div class="banner">', 1)
+                + "\n</body></html>\n")
+    (out / "index.html").write_text(page)
     print(f"{len(matches)} matches, {len(hist)} games -> {out}")
 
 
