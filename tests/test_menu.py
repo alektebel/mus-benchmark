@@ -128,3 +128,18 @@ class ProviderFailureTest(unittest.TestCase):
                                     hands=2, seed=0)
         self.assertEqual(r["status"], "provider_error")
         self.assertEqual(r["usage"]["invalid"], 0)
+
+
+@mock.patch.dict(os.environ, {"NAN_API_KEY": "test"})
+class DeclarationsAreAutomaticTest(unittest.TestCase):
+    def test_models_never_decide_whether_they_have_pares_or_juego(self):
+        prompts = []
+        with mock.patch.object(StrictAgent, "decide",
+                               _fake_decide(random.Random(7), prompts)):
+            r = menu.run_menu_match(["m", "heuristic", "m", "heuristic"],
+                                    hands=6, seed=11)
+        self.assertEqual(r["status"], "done")
+        for _, p in prompts:
+            opts = p.split("YOUR OPTIONS:")[1]
+            self.assertNotIn("tengo", opts)
+            self.assertNotIn("Declarations", p.split("YOUR OPTIONS:")[0][-200:])

@@ -88,11 +88,13 @@ def main():
             matches.append(trim(rp))
     matches.sort(key=lambda m: m.get("finished_at") or "")
 
+    # a public page lists only models that have played
     seen = {r["model"] for r in res["rows"]}
-    rows = res["rows"] + [{"model": m, "elo": cfg["start_elo"], "ci_low": cfg["start_elo"],
-                           "ci_high": cfg["start_elo"], "games": 0, "record": "0-0-0",
-                           "per_hand": 0.0, "p_best": 0.0}
-                          for m in cfg["models"] if m not in seen]
+    rows = res["rows"]
+    models = {k: v for k, v in models.items() if k in seen}
+    for h in hist:
+        h["elo_live"] = {k: v for k, v in h["elo_live"].items() if k in seen}
+        h["elo_fit"] = {k: v for k, v in h["elo_fit"].items() if k in seen}
     data = {"tournament": cfg.get("tournament"), "protocol": cfg["protocol"],
             "start_elo": cfg["start_elo"], "models": models,
             "leaderboard": [dict(r, live=round(live.get(r["model"], cfg["start_elo"]), 1))
