@@ -48,6 +48,8 @@ def main():
     args = ap.parse_args()
 
     # set before virtual_kernel reads it
+    # every request is faked, but seats still check that a key is configured
+    os.environ.setdefault("NAN_API_KEY", "mock-key-not-used")
     os.environ["VACA_MEMORY"] = args.memory
     os.environ["KERNEL_LOG_IO"] = str(Path(args.out) / "io.jsonl")
     import importlib
