@@ -34,7 +34,8 @@ def _logos(m: dict, x: float, cy: float, uid: str) -> str:
     return out
 
 
-def svg(result: dict, names: dict, protocol: str) -> str:
+def svg(result: dict, names: dict, protocol: str, subtitle: str | None = None,
+        value=None) -> str:
     """Bars fade in one by one, best model first. CSS animation only, so it
     plays inside GitHub's <img> sandbox; reduced-motion users get it static."""
     rows = result["rows"]
@@ -69,9 +70,11 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,san
            f'<rect width="{w}" height="{h}" rx="14" class="bg"/>',
            '<text x="24" y="38" font-size="20" font-weight="700">'
            'Who plays mus best?</text>',
-           f'<text x="24" y="62" font-size="12.5" class="mut">Score = piedras per hand '
-           f'won vs an average opponent · 95% bootstrap interval · protocol '
-           f'{html.escape(protocol)} · {result["n_matches"]} matches</text>']
+           f'<text x="24" y="62" font-size="12.5" class="mut">' + html.escape(
+               subtitle or f'Score = piedras per hand won vs an average opponent · '
+                           f'95% bootstrap interval · protocol {protocol} · '
+                           f'{result["n_matches"]} matches') + '</text>']
+    value = value or (lambda r: _fmt(r["score"]))
     zero = x(0.0)
     out.append(f'<line x1="{zero:.1f}" y1="{top - 8}" x2="{zero:.1f}" '
                f'y2="{top + row_h * len(rows)}" class="grid" stroke-width="1.5"/>')
@@ -102,7 +105,7 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,san
             out.append(f'<line x1="{x(v):.1f}" y1="{cy - 5:.1f}" x2="{x(v):.1f}" '
                        f'y2="{cy + 5:.1f}" class="ci" stroke-width="1.6" opacity=".7"/>')
         out.append(f'<text x="{w - 24}" y="{cy + 5:.1f}" font-size="15" text-anchor="end" '
-                   f'font-weight="{weight}">{_fmt(r["score"])}</text>')
+                   f'font-weight="{weight}">{html.escape(value(r))}</text>')
         out.append('</g>')
     foot = top + row_h * len(rows) + 28
     note = ("#1 is clear of #2 (intervals do not overlap)" if result.get("top_separated")
@@ -169,3 +172,51 @@ def splice_readme(readme: str, block: str) -> str:
     # first insert: right under the H1 title
     head, sep, rest = readme.partition("\n")
     return head + "\n\n" + block + "\n" + sep + rest
+
+
+def elo_view(res: dict, start: float) -> dict:
+    """Elo rows reshaped for `svg`: bars measure Elo above/below the start."""
+    rows = [dict(r, score=r["elo"] - start, ci_low=r["ci_low"] - start,
+                 ci_high=r["ci_high"] - start) for r in res["rows"]]
+    sep = len(rows) > 1 and rows[0]["ci_low"] > rows[1]["ci_high"]
+    return {"rows": rows, "n_matches": 2 * res["games"], "top_separated": sep}
+
+
+def markdown_elo(res: dict, live: dict, names: dict, cfg: dict,
+                 svg_path: str = "docs/leaderboard.svg",
+                 icon_dir: str = "benchmark/icons") -> str:
+    rows, start = res["rows"], cfg["start_elo"]
+    if not rows:
+        return (f"{START}\n_No games yet in tournament `{cfg.get('tournament')}`: every "
+                f"model starts at {start:.0f} Elo._\n{END}")
+    best = rows[0]
+    bname = _meta(names, best["model"])["name"]
+    sep = len(rows) > 1 and best["ci_low"] > rows[1]["ci_high"]
+    verdict = (f"**Best at mus right now: {bname}, {best['elo']:.0f} Elo** "
+               f"(95% CI {best['ci_low']:.0f}–{best['ci_high']:.0f}; #1 in "
+               f"{best['p_best']:.0%} of resamples, {best['games']} games).")
+    if not sep:
+        verdict += " Its interval still overlaps #2, so the order is provisional."
+    lines = [START, "",
+             f'<p align="center"><img src="{svg_path}" alt="mus_bench Elo leaderboard" '
+             f'width="860"></p>', "", verdict, "",
+             "| # | Model | Provider | Elo | 95% CI | Live Elo | Games | W-L-D | Piedras/hand |",
+             "|--:|:--|:--|--:|:-:|--:|--:|:-:|--:|"]
+    for r in rows:
+        m = _meta(names, r["model"])
+        name = f"**{m['name']}**" if r["rank"] == 1 else m["name"]
+        lines.append(
+            f"| {r['rank']} | {_img(m['model_icon'], icon_dir)}{name}<br><sub><code>"
+            f"{r['model']}</code></sub> | {_img(m['provider_icon'], icon_dir)}{m['provider']} "
+            f"| {r['elo']:.0f} | {r['ci_low']:.0f}–{r['ci_high']:.0f} "
+            f"| {live.get(r['model'], start):.0f} | {r['games']} | {r['record']} "
+            f"| {r['per_hand']:+.1f} |")
+    lines += ["",
+              f"<sub>Every model starts at {start:.0f}. One game = two matches on the same "
+              f"deals with the seats swapped; whoever scores more piedras over the pair "
+              f"wins it. **Elo** is a Bradley–Terry fit over all {res['games']} games of "
+              f"tournament `{cfg.get('tournament')}` (order-independent, field average "
+              f"{start:.0f}); **Live Elo** is classic K=32 updating in the order games "
+              f"finished. Every match is replayable from `benchmark/replays/`. "
+              f"Method: [docs/SCORING.md](docs/SCORING.md).</sub>", "", END]
+    return "\n".join(lines)

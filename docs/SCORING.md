@@ -1,126 +1,203 @@
 # How the mus_bench score works
 
-## The number
+The current leaderboard is an **Elo tournament** between models on the v3
+**menu harness**. The older v2 piedras-per-hand rating is described at the
+end, and its data stays in the ledger as history.
 
-**Score = piedras per hand a model wins against an average opponent of the
-rated field.** `+9.5` means that over a hand of mus, with the same deals and
-both seatings, the model's team outscores a typical rival team by 9.5 piedras.
-0 is the field average (or the `anchor` model, if one is set).
+## The harness (protocol `v3-menu`)
 
-### Why piedras per hand, not vacas or wins
+`src/musbench/harness/menu.py`. At every decision a seat sees what a player
+at a real table knows, and only that:
 
-A vaca is a 40-point threshold that also zeroes both counters, so a team on
-39 loses everything. An 8-hand match yields 0–5 vacas, which is a very noisy
-count. Piedras per hand keeps every point the hands actually produced
-(README, "Paired deals").
+- its own four cards, plus facts the engine computes (punto total, pares,
+  juego). These are arithmetic, not judgement;
+- the score, who is mano, and the public history of the hand: who said mus,
+  how many cards each seat changed, the declarations, every bet;
+- the cards shown at the end of recent hands;
+- a **numbered list of the moves the engine allows right now**. Discards are
+  a menu too: every subset of the hand.
 
-### The fit
+The seat replies `{"choice": N, "why": "<one sentence>"}`. A prohibited move
+can't be expressed, so no model is penalised for illegal actions and none is
+handed default moves.
+- **No move is ever played for a model.** An answer that isn't a valid
+  option is asked again (three asks in all, `MENU_ASKS`). A model that never
+  answers validly ends the match as `no_answer`: it isn't scored and gets
+  replayed once. No rule or heuristic ever fills in.
+- **Only one automatic move:** the declaration (tengo / no tengo). The engine
+  accepts only the truthful one, so there's nothing to decide. A menu with a
+  single legal option is applied the same way. Tío Perete is a menu choice.
+- **What the track doesn't include:** table talk and señas. It measures card
+  play, folding, bluffing and reading the public history.
+- **Provider failures** (quota, outage) abort the match with
+  `provider_error` so it gets replayed. They are never scored as the
+  model's play.
 
-Each match gives one observation, the margin per hand of team A (seats 0+2)
-over team B (seats 1+3):
+## Elo
+
+- **One game = one mirrored pair:** two matches on the same seed with the
+  seats swapped. Both teams play the same deals from both sides, so card luck
+  and the seat edge cancel.
+- **Who wins:** the team with more piedras over the pair wins the game, and
+  equal totals are a draw. A 170–80 win and a 95–94 win count the same.
+- **Everyone starts level:** every model starts at `start_elo` (1000). There's
+  no reference bot; models only play each other, and the field average stays
+  at 1000.
+- **Official Elo:** a Bradley–Terry fit over every game of the tournament, on
+  the Elo scale (400 points = 10:1 odds). It doesn't depend on the order games
+  finish in. A weak prior keeps an unbeaten record finite.
+- **95% CI** comes from resampling games. **P(#1)** is the share of resamples
+  where the model comes out on top.
+- **Live Elo:** classic chess Elo with K = 32, updated after each game in the
+  order games finished. Use it for rating-over-time charts. It depends on
+  order, so it isn't the official number.
+- **Piedras/hand:** the margin, reported next to Elo. Elo ignores how big a
+  win was, and the margin keeps that information.
+
+### Swiss rounds
+
+`python -m musbench.leaderboard swiss --rounds R --games G` pairs models of
+similar Elo each round (random order in round 1, when everyone is tied),
+prefers pairings that haven't met yet, and plays G mirrored games per
+pairing on seeds that pair hasn't used. Ratings are refitted after every
+round.
+
+- **Probe before each round:** every model gets one tiny call. A model whose
+  provider is down or out of quota sits that round out, so no opponent loses
+  a game. It rejoins once it answers again.
+- **Bye:** with an odd field, the model with the most games so far sits out.
+- **Provider failures:** a match that fails for provider reasons is replayed
+  once at the end of the round. A game with only one finished seating replays
+  just the missing one.
+
+### How many games?
+
+A model's rating carries about ±347/√n Elo after n games (95% CI):
+
+| games per model | rating ± |
+|--:|--:|
+| 10 | 215 |
+| 20 | 155 |
+| 46 | 100 |
+| 185 | 50 |
+
+Head-to-head, separating two models takes:
+
+| Elo gap | win rate | mirrored games | matches |
+|--:|--:|--:|--:|
+| 400 | 91% | 2 | 4 |
+| 200 | 76% | 11 | 22 |
+| 150 | 70% | 20 | 40 |
+| 100 | 64% | 46 | 92 |
+| 50 | 57% | 185 | 370 |
+
+The margin is far more efficient: mirrored games vary by about 4.6
+piedras/hand, so 9 games resolve a 3-piedras/hand difference.
+
+### A fresh tournament
+
+Only ledger rows tagged with `tournament` (in `benchmark/models.toml`) count.
+Change the tag and every model starts at `start_elo` again. Older rows stay
+in the ledger.
+
+## Replays (every match is logged)
+
+Every match writes `benchmark/replays/<tournament>/<match_id>.json.gz`
+(format `mus-replay/1`, `src/musbench/leaderboard/replay.py`):
 
 ```
-margin_per_hand(A vs B) = r_A - r_B + seat_bias
+{format, match_id, tournament, protocol, commit, seed, status, started_at,
+ finished_at, seats: [{seat, team, model, spec, name}], settings, result, usage,
+ hands: [{hand, mano, dealt{seat: cards}, showdown{seat: cards},
+          lances{lance: team}, truth{lance: team}, locked_envites,
+          gain[a, b], points_after[a, b], vacas_after[a, b],
+          events: [{turn, t, wall, seat, team, phase, stage, lance, action,
+                    cards, drew, public, thought, options, auto, stake,
+                    points_after, points_delta, would_win, strength}]}]}
 ```
 
-This is a Massey rating: weighted least squares (weight = hands), with one
-shared `seat_bias` term, because seats 0+2 have a measured positional edge
-(README, "Known seat bias"). Every pairing is played on every seed **in both
-seatings**, so the two orientations see identical cards. Deal luck and seat
-bias cancel inside each pair, and the rating mostly measures play.
+- `public` is what the table heard ("Grande: envido").
+- `thought` is the seat's one-line reason. `options` is the menu it saw.
+- `drew` lists the cards that came in after a discard.
+- `would_win` and `strength` are engine ground truth, there for commentary. A
+  viewer replaying "as the table saw it" should hide them and the other
+  seats' cards until the showdown.
 
-Unlike a raw "average margin", the fit corrects for strength of schedule.
-Beating the weakest model counts for less than beating the strongest.
+`benchmark/elo_history_<tournament>.jsonl` has one line per game in the
+order games finished: the result, its two `match_ids`, and every model's
+live and fitted Elo after it. That's the timeline for an animation. The
+ledger row of each match also carries `match_id`, `finished_at` and
+`replay`.
 
-### The interval and P(#1)
+## Commands
 
-A block bootstrap (`bootstrap` resamples, seeded so CI output is
-reproducible) resamples **(pairing, seed) blocks**, so a mirror pair is never
-split. Each resample is refitted:
-
-- **95% CI** is the 2.5/97.5 percentile of the resampled scores.
-- **P(#1)** is the share of resamples in which the model has the top score.
-- The README states whether #1's interval clears #2's. If it doesn't, the
-  order is provisional.
-
-### What is excluded
-
-- Matches from a different `protocol` (see `benchmark/models.toml`). Bump the
-  protocol whenever the engine, prompts or schedule change, and re-run.
-- Matches with a status other than `done` (timeouts, aborts, partial runs).
-  Matches with LLM seats are also excluded when fewer than 50 LLM calls were
-  made or more than 15% of decisions fell back to a default action.
-- Models that are not on the roster. To remove a model from the leaderboard,
-  delete its `[[model]]` block. Its ledger rows stay as history.
-
-The ⚠️ flag marks a model rated against a single opponent. Its score is
-`opponent's score + head-to-head margin`, so it inherits that opponent's
-uncertainty. Fix this by running its full schedule.
+```bash
+python -m musbench.leaderboard list                 # roster and coverage
+python -m musbench.leaderboard check                # probe every model (credentials, quota)
+python -m musbench.leaderboard swiss --rounds 5 --games 2 --workers 6
+python -m musbench.leaderboard elo                  # Elo table in the terminal
+python -m musbench.leaderboard score                # README block, SVG, JSON, history
+python -m musbench.leaderboard backfill results/…   # replays for rows that lack one
+```
 
 ## Adding a model
 
-```bash
-# 1. register it (one TOML block is appended to benchmark/models.toml)
-python -m musbench.leaderboard add claude-sonnet-5-5 \
-    --spec anthropic:claude-sonnet-5-5 --name "Claude Sonnet 5.5"
+Append a `[[model]]` block to `benchmark/models.toml` (or use
+`python -m musbench.leaderboard add ID --spec … --name …`). It starts at
+`start_elo`, and the next Swiss rounds pair it as they go.
 
-# 2. see what it will play: every roster model x every seed x both seatings
-python -m musbench.leaderboard schedule claude-sonnet-5-5
-
-# 3. play it (API spend; resumable: only missing matches are played)
-python -m musbench.leaderboard run claude-sonnet-5-5 --workers 2
-
-# 4. refresh README block, docs/leaderboard.svg, benchmark/leaderboard.json
-python -m musbench.leaderboard score
-git add benchmark/ docs/leaderboard.svg README.md && git commit
-```
-
-`--spec` is anything the harness accepts:
+`spec` is anything the harness accepts:
 
 | spec | seat |
 |---|---|
-| `glm5.3-flash` | default provider (`DEFAULT_PROVIDER`, `nan`) |
-| `nan:…` / `nvidia:…` / `openrouter:…` | OpenAI-compatible chat completions |
+| `claude-cli:claude-…` | Claude Code CLI (`claude -p`, tools off, own system prompt) |
+| `codex-cli:gpt-…` | Codex CLI (`codex exec`, read-only, isolated `CODEX_HOME`) |
+| `cursor-cli:…` | Cursor CLI (`cursor-agent -p --mode ask`) |
+| `glm5.3-flash`, `nan:…`, `nvidia:…`, `openrouter:…` | OpenAI-compatible chat completions |
 | `anthropic:claude-…` | Anthropic Messages API (`ANTHROPIC_API_KEY`) |
 | `typesafe:jev-latest` | TypeSafe Jev |
 | `heuristic`, `random`, `eps:E:B` | free offline baselines |
 
-For a provider that isn't listed, add one line to `PROVIDERS` in
-`src/musbench/agents/core.py` if it speaks OpenAI chat completions.
-Otherwise add a seat class (see `anthropic_seat.py`).
-
-Cost: a roster of *N* models means 2 × N × |seeds| new matches per model.
-At 8 hands that's about 170–300 LLM calls per match.
+The CLI seats run each decision as a fresh, stateless call in an empty
+temporary directory. Codex and Cursor still add their own agent system
+prompt, so those models are labelled by CLI.
 
 ### Logos
 
 Each row shows the provider's logo, the model's own logo (when it differs,
 e.g. Google + Gemma) and the exact model id. They are picked from the id by
-`FAMILIES` in `src/musbench/leaderboard/icons.py`. For a family it doesn't
-know, add a line there, or set `provider`, `provider_icon` and `model_icon`
-on the `[[model]]` block. Fetch a missing logo with
-`python -m musbench.leaderboard icon <slug>` (LobeHub slugs, e.g.
-`perplexity-color`).
-
-`python -m musbench.leaderboard list` shows the roster, how many rated
-matches each model has, and how many of its scheduled matches are missing.
+`FAMILIES` in `src/musbench/leaderboard/icons.py`. Otherwise set `provider`,
+`provider_icon` and `model_icon` on the `[[model]]` block. Fetch a logo with
+`python -m musbench.leaderboard icon <slug>`.
 
 ## Files
 
 | file | role |
 |---|---|
-| `benchmark/models.toml` | roster + protocol, hands, seeds, anchor |
-| `benchmark/matches.jsonl` | append-only ledger, one compact row per match; the source of truth |
-| `benchmark/leaderboard.json` | last computed leaderboard (machine-readable) |
+| `benchmark/models.toml` | roster, protocol, harness, tournament, start Elo |
+| `benchmark/matches.jsonl` | append-only ledger, one row per match; the source of truth |
+| `benchmark/replays/` | one full replay per match |
+| `benchmark/elo_history_<t>.jsonl` | per-game Elo timeline |
+| `benchmark/leaderboard.json` | last computed leaderboard |
 | `docs/leaderboard.svg` | the animated chart at the top of the README |
 | `benchmark/icons/` | provider and model logos (LobeHub, MIT) |
-| `src/musbench/leaderboard/` | `rating.py` (fit + bootstrap), `render.py`, `cli.py` |
+| `src/musbench/leaderboard/` | `elo.py`, `replay.py`, `rating.py` (v2), `render.py`, `cli.py` |
 
-## Provenance of the current data
+## History: v2 and the bugs v3 fixed
 
-The 55 `v2` rows were imported from `bench-v2-results.json` (generated
-2026-09-19, published at `/mus/bench-v2-results.json`). That file records
-"explicit amounts, corrido sin señas hand 1, CoT · 8 hands · seeds 0-3 · both
-seatings". The script that produced it is **not in this repository**, and
-its per-match fallback counts are not split by team. New rows written by
-`run` carry the git commit, the specs, and per-team calls and fallbacks.
+The 55 `v2` rows were imported from `bench-v2-results.json` (2026-09-19). v2
+used free-form JSON actions, which were rejected 10–66% of the time and
+replaced with default moves. Jev's v2 seat also had its discards made by
+the heuristic. v2 was scored with a Massey piedras-per-hand rating
+(`rating.py`).
+
+The Fable 5.2 validation run of v3 found two engine bugs, both fixed and
+covered by tests in `tests/test_engine.py`:
+
+1. **Accepted lance órdagos were settled wrongly.** The engine counted all
+   four lances to decide the vaca, when the lance where the órdago was called
+   should decide it.
+2. **Tied lances scored for nobody.** At a real table, ties go to the side
+   nearest the mano.
+
+Neither v2 results nor the live table before the fix are comparable with v3.

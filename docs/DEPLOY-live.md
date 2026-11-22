@@ -1,5 +1,7 @@
 # Deploying the playable table
 
+Day-to-day ship path (tests → push → EC2 → optional Pages): see [SHIP.md](SHIP.md).
+
 The goal: **`alektebel.github.io/mus/play/` where anyone can sit down against
 the models.**
 
@@ -134,8 +136,9 @@ redeploy (`fly secrets set NAME=value`):
 | `MUS_DAILY_CALL_BUDGET` | 4000 | model calls per UTC day; after this, offline seats |
 | `MUS_SESSION_CALL_CAP` | 240 | calls in a single game |
 | `MUS_PUBLIC_HANDS` | 4 | legacy cap; public games now default to ONE vaca (hard cap 40 hands), so the real cost lever is `MUS_DAILY_CALL_BUDGET` |
-| `MUS_TRACE_TABLE` | `mus-traces` | DynamoDB table for game traces (gzip JSON, written via the instance role); empty string disables |
-| `MUS_TRACE_TTL_DAYS` | 120 | trace expiry (DynamoDB TTL on the `tte` attribute) |
+| `MUS_TRACE_DIR` | `traces/` (or `/var/lib/mus/traces` if writable) | local gzip JSON traces for every user game; empty string disables disk |
+| `MUS_TRACE_TABLE` | `mus-traces` | DynamoDB table for the same traces (written via the instance role); empty string disables |
+| `MUS_TRACE_TTL_DAYS` | 120 | DynamoDB TTL on the `tte` attribute |
 | `MUS_MAX_SESSIONS` | 12 | concurrent tables |
 | `MUS_MAX_LLM_SESSIONS` | 4 | of those, tables facing real models |
 | `MUS_GAMES_PER_IP_HOUR` | 6 | games one address may start per hour |

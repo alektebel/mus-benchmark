@@ -6,6 +6,8 @@ progress.json
 
 .venv/
 *.egg-info/
+traces/
 
 # the public leaderboard is committed data
 !benchmark/leaderboard.json
+results/

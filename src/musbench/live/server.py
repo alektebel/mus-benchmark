@@ -37,8 +37,11 @@ from urllib.parse import parse_qs, urlparse
 
 from musbench.mus.engine import MusEngine, Phase, IllegalAction, TEAM_OF, LANCE_NAMES
 from musbench.agents.groupchat import Channels
-from musbench.agents.prompt_builder import build_prompt, redact_card_talk
+from musbench.agents.prompt_builder import (build_prompt, build_preplan_prompt,
+                                            build_mus_snap_prompt,
+                                            redact_card_talk)
 from musbench.agents.core import _make_agent, _default_legal, SeatBase
+from musbench.agents.baselines import HeuristicPolicy
 from musbench.mus.senas import SENAS, is_valid_sena, sena_truthful
 import musbench.observe.trace_store as trace_store
 import musbench.observe.signal_bus as signal_bus
@@ -57,6 +60,20 @@ HAND_PAUSE = 0.0
 
 MAX_REJECT_RETRIES = int(os.environ.get("MAX_REJECT_RETRIES", "4"))
 HUMAN_TURN_TIMEOUT = float(os.environ.get("HUMAN_TURN_TIMEOUT", "45"))
+# How long an LLM turn will wait for an idle-time preplan before deciding cold.
+PREPLAN_WAIT = float(os.environ.get("MUS_PREPLAN_WAIT", "8"))
+PREPLAN_ENABLED = os.environ.get("MUS_PREPLAN", "1").strip().lower() \
+    in ("1", "true", "yes")
+# Discard stays local (fast). Mus/no is decided by the LLM with a snap prompt.
+AUTO_MUS_DRAW = os.environ.get("MUS_AUTO_MUS_DRAW", "1").strip().lower() \
+    in ("1", "true", "yes")
+# Legacy alias: if set, forces both request+draw auto (benchmarks / offline).
+AUTO_MUS = os.environ.get("MUS_AUTO_MUS", "0").strip().lower() \
+    in ("1", "true", "yes")
+LIVE_MUS_CUT = float(os.environ.get("MUS_LIVE_MUS_CUT", "0.58"))
+LIVE_MUS_BLUFF = float(os.environ.get("MUS_LIVE_MUS_BLUFF", "0.20"))
+# Hard ceiling for a mus/no API call so a hung model cannot stall the table.
+MUS_SNAP_TIMEOUT = float(os.environ.get("MUS_SNAP_TIMEOUT", "25"))
 RESULTS_DIR = os.environ.get("MUS_RESULTS_DIR", "results")
 CARDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "..", "..", "..", "assets", "cards")
@@ -103,7 +120,11 @@ class LiveGame:
         self.seed = seed
         self.vaca_limit = vaca_limit
         self.sid: str | None = None
+        self.player_nick: str | None = None
         self.io_log: list[dict] = []
+        # Every accepted action (human / LLM / heuristic), for full-play traces.
+        self.play_log: list[dict] = []
+        self._trace_saved = False
         self.engine = MusEngine(rng=Random(seed))
         self.agents = [_make_agent_or_human(s, i, seed)
                        for i, s in enumerate(specs)]
@@ -117,6 +138,7 @@ class LiveGame:
         self.bus = SignalBus(rng=Random(f"{seed}:signals"),
                              intercept_prob=signal_bus.INTERCEPT_PROB)
         self.kernel = Kernel(rng=Random(seed + 1))
+        self._mus_rng = Random(f"{seed}:mus-bluff")
         self.version = 0
         self.events: list[dict] = []
         self._event_seq = 0
@@ -125,7 +147,8 @@ class LiveGame:
         self.pending_human: dict | None = None
         self.match_status = "running"
         self.error: str | None = None
-        self.stats = {"turns": 0, "llm_turns": 0, "fallbacks": 0}
+        self.stats = {"turns": 0, "llm_turns": 0, "fallbacks": 0,
+                      "mus_bluff_cuts": 0}
         self.thinking_seat: int | None = None
         # wall-clock turn clock for the seat currently deciding (human or LLM)
         self.turn_seat: int | None = None
@@ -136,6 +159,11 @@ class LiveGame:
         self.hands_played = 0
         self.last_delivered: list = []
         self.human_error: dict[int, str] = {}
+        # Idle-time strategy drafts: seat -> threading state
+        self._preplan_lock = threading.Lock()
+        self._preplan_inflight: set[int] = set()
+        # Serialize API calls per seat (preplan thread vs live turn).
+        self._decide_locks = [threading.Lock() for _ in range(4)]
 
     def _begin_turn_clock(self, seat: int, timeout: float) -> None:
         self.turn_seat = seat
@@ -203,6 +231,27 @@ class LiveGame:
 
     # ------------- accepted-action side effects -------------
     def _emit(self, agent, action: dict, hand) -> None:
+        # Full-play audit trail (every accepted action, any seat).
+        try:
+            self.play_log.append({
+                "t": round(self.kernel.now, 2),
+                "hand": self.hands_played,
+                "phase": self.engine.phase.name,
+                "lance": (LANCE_NAMES[self.engine.lance_index]
+                          if isinstance(self.engine.lance_index, int)
+                          and 0 <= self.engine.lance_index < len(LANCE_NAMES)
+                          else None),
+                "seat": agent.seat,
+                "name": agent.name,
+                "model": getattr(agent, "model", None),
+                "action": {k: v for k, v in (action or {}).items()
+                           if k not in ("thought", "signal_policy")},
+                "hand_cards": [str(c) for c in (hand or [])],
+            })
+            if len(self.play_log) > 1200:
+                self.play_log = self.play_log[-800:]
+        except Exception:  # noqa: BLE001 -- tracing must never break play
+            pass
         msg = action.get("message")
         if isinstance(msg, str) and msg.strip():
             original = " ".join(msg.split()[:20])[:120]
@@ -268,7 +317,11 @@ class LiveGame:
                 txt = (f"{agent.name} quiere ({amt})" if amt
                        else f"{agent.name} quiere el órdago")
             elif name == "no-quiero":
-                txt = f"{agent.name} no quiere"
+                if eng.phase == Phase.ORDAGO_RESPONSE:
+                    txt = (f"{agent.name} no quiere el órdago "
+                           f"(falta el otro rival)")
+                else:
+                    txt = f"{agent.name} no quiere"
             elif name == "ordago":
                 txt = f"{agent.name} ¡órdago!"
             else:
@@ -278,6 +331,15 @@ class LiveGame:
             self._event("mus",
                         f"{agent.name} {'pide mus' if name == 'mus' else 'corta: no hay mus'}",
                         seat=seat, action=name)
+        elif name == "perete":
+            left = (seat + 1) % 4
+            cards = [str(c) for c in (eng.hands.get(seat) or [])]
+            # Event carries the NEW hand; animation uses tossed ranks from text.
+            self._event("perete",
+                        f"{agent.name} ¡perete! · 4·5·6·7 a la izquierda "
+                        f"({self.agents[left].name})",
+                        seat=seat, action="perete", to_seat=left,
+                        cards=["cuatro", "cinco", "seis", "siete"])
         elif name == "discard":
             cards = action.get("cards") or []
             n = len(cards)
@@ -293,27 +355,153 @@ class LiveGame:
                  "equipo B" if j.winner_team == 1 else "nadie")
             self._event("lance", f"{j.name}: gana {w}")
 
+    # ------------- idle preplan (think while others act) -------------
+    def _cards_final(self) -> bool:
+        """True once mus/draw is over and lance play can be planned."""
+        return self.engine.phase in (Phase.DECLARE, Phase.ENVITE,
+                                     Phase.ORDAGO_RESPONSE)
+
+    def _preplan_key(self, agent) -> tuple:
+        hand = self.engine.hands.get(agent.seat) or []
+        return (self.hands_played,
+                tuple(str(c) for c in hand),
+                self.engine.phase.name)
+
+    def _clear_preplans(self) -> None:
+        with self._preplan_lock:
+            self._preplan_inflight.clear()
+        for a in self.agents:
+            a.preplan = None
+            a.preplan_key = None
+
+    def _schedule_preplans(self, skip_seat: int | None = None) -> None:
+        """Kick background strategy drafts for LLM seats with final cards."""
+        if not PREPLAN_ENABLED or not self._cards_final():
+            return
+        for agent in self.agents:
+            if not getattr(agent, "is_llm", False):
+                continue
+            if skip_seat is not None and agent.seat == skip_seat:
+                continue
+            key = self._preplan_key(agent)
+            if agent.preplan and agent.preplan_key == key:
+                continue
+            with self._preplan_lock:
+                if agent.seat in self._preplan_inflight:
+                    continue
+                self._preplan_inflight.add(agent.seat)
+            threading.Thread(
+                target=self._run_preplan, args=(agent, key),
+                daemon=True, name=f"preplan-{agent.seat}").start()
+
+    def _agent_decide(self, agent, prompt: str) -> dict:
+        with self._decide_locks[agent.seat]:
+            return agent.decide(prompt)
+
+    def _run_preplan(self, agent, key: tuple) -> None:
+        try:
+            if self.stopped.is_set() or not self._cards_final():
+                return
+            if self._preplan_key(agent) != key:
+                return
+            prompt = build_preplan_prompt(agent, self.engine)
+            # Idle draft can take its time; the *turn* is what we want fast.
+            data = self._agent_decide(agent, prompt)
+            if self._preplan_key(agent) != key:
+                return
+            plan = ""
+            if isinstance(data, dict):
+                plan = (data.get("plan") or data.get("thought") or "")
+                if isinstance(plan, str):
+                    plan = plan.strip()
+            if plan:
+                agent.preplan = plan[:500]
+                agent.preplan_key = key
+                self._event("preplan",
+                            f"{agent.name} tiene plan de mano",
+                            seat=agent.seat)
+                self.touch()
+        except Exception as e:  # noqa: BLE001 -- idle draft must never stall play
+            print(f"  [preplan] seat {agent.seat} failed: {e}", flush=True)
+        finally:
+            with self._preplan_lock:
+                self._preplan_inflight.discard(agent.seat)
+
+    def _await_preplan(self, agent, timeout: float = PREPLAN_WAIT) -> None:
+        if not PREPLAN_ENABLED or not getattr(agent, "is_llm", False):
+            return
+        key = self._preplan_key(agent)
+        if agent.preplan and agent.preplan_key == key:
+            return
+        self._schedule_preplans()
+        deadline = time.monotonic() + max(0.0, timeout)
+        while time.monotonic() < deadline:
+            if agent.preplan and agent.preplan_key == key:
+                return
+            with self._preplan_lock:
+                pending = agent.seat in self._preplan_inflight
+            if not pending:
+                return
+            if self.stopped.is_set():
+                return
+            time.sleep(0.15)
+
     # ------------- turns -------------
     def _llm_turn(self, agent, hand) -> dict:
         legal = self.engine.legal_actions(agent.seat)
+        snap = self.engine.phase == Phase.MUS_REQUEST
+        if snap:
+            # Do not wait on preplans during mus — that race wastes the turn.
+            prompt = build_mus_snap_prompt(agent, self.engine, legal)
+            agent.snap_turn = True
+            agent.fast_turn = True
+            prev_deadline = getattr(agent, "deadline", None)
+            # Cap wall time so a hung snap cannot freeze the table for NAN_TIMEOUT.
+            agent.deadline = time.monotonic() + MUS_SNAP_TIMEOUT
+            try:
+                return self._llm_turn_decide(agent, hand, prompt, None)
+            finally:
+                agent.deadline = prev_deadline
+                agent.snap_turn = False
+                agent.fast_turn = False
+        self._await_preplan(agent)
         prompt = build_prompt(agent, self.engine, self.ch, legal,
                               delivered=self.last_delivered)
         last_error = None
+        had_plan = bool(agent.preplan and agent.preplan_key == self._preplan_key(agent))
+        agent.fast_turn = had_plan
+        try:
+            return self._llm_turn_decide(agent, hand, prompt, last_error)
+        finally:
+            agent.fast_turn = False
+
+    def _llm_turn_decide(self, agent, hand, prompt, last_error) -> dict:
         for attempt in range(MAX_REJECT_RETRIES):
             retry_prompt = prompt
             if last_error:
                 retry_prompt += (f"\nYour last action was REJECTED: "
                                  f"{last_error}. Return a legal action.")
             try:
-                action = agent.decide(retry_prompt)
+                action = self._agent_decide(agent, retry_prompt)
             except (LLMCallFailure, FatalAPIError, MatchTimeout) as e:
+                # Keep the same face at the table. Mid-hand seat swaps feel
+                # like a bait-and-switch; ban the silent model from *future*
+                # lineups and play one legal default this turn.
+                import musbench.live.public as live_public
                 agent.api_errors += 1
+                live_public.mark_bad_model(live_public.agent_spec(agent))
                 self._event("api_error",
-                            f"{agent.name} ({agent.model}): error de API "
-                            f"({type(e).__name__}) -> acción legal por defecto",
+                            f"{agent.name} ({getattr(agent, 'model', '?')}): "
+                            f"error de API ({type(e).__name__}) · "
+                            f"sigue en mesa con una jugada legal",
                             seat=agent.seat)
                 return self._fallback(agent, _default_legal(self.engine,
                                                             agent.seat))
+            # Preplan replies have no table action — treat as empty decide.
+            if not isinstance(action, dict) or not action.get("action") \
+                    or action.get("action") == "plan":
+                last_error = "missing action field"
+                continue
             try:
                 self.engine.apply(agent.seat, action)
                 self._emit(agent, action, hand)
@@ -357,6 +545,59 @@ class LiveGame:
         self._narrate(agent, action)
         return True
 
+    def _try_auto_perete(self, agent, hand) -> bool:
+        """LLMs always dump tío Perete; humans press the button."""
+        if self.engine.phase != Phase.MUS_REQUEST:
+            return False
+        if isinstance(agent, HumanSeat):
+            return False
+        if "perete" not in self.engine.legal_actions(agent.seat):
+            return False
+        action = {"action": "perete"}
+        self.engine.apply(agent.seat, action)
+        self._emit(agent, action, hand)
+        self._narrate(agent, action)
+        return True
+
+    def _try_auto_mus(self, agent, hand) -> bool:
+        """Local policy for discard (and optional full auto-mus via env).
+
+        Mus/no is normally an LLM snap-turn so seats can cut de farol for
+        real. Set MUS_AUTO_MUS=1 to force the old instant heuristic.
+        """
+        if isinstance(agent, HumanSeat):
+            return False
+        phase = self.engine.phase
+        if phase == Phase.MUS_REQUEST:
+            if not AUTO_MUS:
+                return False
+        elif phase == Phase.MUS_DRAW:
+            if not (AUTO_MUS or AUTO_MUS_DRAW):
+                return False
+        else:
+            return False
+        legal = self.engine.legal_actions(agent.seat)
+        if not legal:
+            return False
+        if phase == Phase.MUS_REQUEST and "perete" in legal:
+            return False  # handled by _try_auto_perete
+        policy = HeuristicPolicy()
+        policy.MUS_MAX = LIVE_MUS_CUT
+        action = policy.act(self.engine, agent.seat, legal)
+        if (phase == Phase.MUS_REQUEST
+                and action.get("action") == "mus"
+                and "no" in legal
+                and LIVE_MUS_BLUFF > 0
+                and self._mus_rng.random() < LIVE_MUS_BLUFF):
+            action = {"action": "no"}
+            self.stats["mus_bluff_cuts"] = self.stats.get("mus_bluff_cuts", 0) + 1
+        if action.get("action") not in legal and action.get("action") != "discard":
+            action = _default_legal(self.engine, agent.seat)
+        self.engine.apply(agent.seat, action)
+        self._emit(agent, action, hand)
+        self._narrate(agent, action)
+        return True
+
     def _human_turn(self, agent: HumanSeat, hand) -> None:
         seat = agent.seat
         if self._try_auto_declare(agent, hand):
@@ -376,6 +617,8 @@ class LiveGame:
     def _human_wait(self, agent: HumanSeat, hand, seat: int) -> None:
         deadline = time.monotonic() + HUMAN_TURN_TIMEOUT
         while True:
+            # Human thinking time is when rivals draft their hand plan.
+            self._schedule_preplans(skip_seat=seat)
             try:
                 item = agent.inbox.get(timeout=0.5)
             except queue.Empty:
@@ -449,8 +692,8 @@ class LiveGame:
             self._event("error", f"error inesperado: {self.error}")
             self.touch()
         finally:
-            # one trace per game, however it ended
-            trace_store.save_trace(self.sid, trace_store.build_record(self))
+            # one trace per game, however it ended (disk always; Dynamo when set)
+            trace_store.persist_game(self)
 
     def _run_match(self):
         if self.vaca_limit:
@@ -499,6 +742,7 @@ class LiveGame:
             a.signals_read = 0
             a.want_signals = False
             a.last_thought = None
+        self._clear_preplans()
         self._event("hand_start",
                     f"Mano {hand_no} · mano (primer hablante): "
                     f"asiento {engine.mano}")
@@ -550,15 +794,23 @@ class LiveGame:
                             seat=seat, to_seat=ev.from_seat, gesture=ev.gesture,
                             meaning=SENAS.get(ev.gesture, ("?",))[0])
         hand = list(engine.hands[seat])
+        # While this seat acts, other LLMs can draft their lance plan.
+        self._schedule_preplans(skip_seat=seat)
         # tengo/no-tengo is forced by the cards — skip LLM "pensando" and the
         # human click. Baselines already pick the truthful declare; route them
         # through the same instant path so narration stays consistent.
+        # Perete + mus/no/discard are likewise instant for non-human seats.
         if self._try_auto_declare(agent, hand):
+            pass
+        elif self._try_auto_perete(agent, hand):
+            pass
+        elif self._try_auto_mus(agent, hand):
             pass
         elif agent.is_llm:
             self.stats["llm_turns"] += 1
             self.thinking_seat = seat
-            llm_timeout = float(os.environ.get("NAN_TIMEOUT", "180"))
+            llm_timeout = (MUS_SNAP_TIMEOUT if engine.phase == Phase.MUS_REQUEST
+                           else float(os.environ.get("NAN_TIMEOUT", "180")))
             self._begin_turn_clock(seat, llm_timeout)
             try:
                 self._llm_turn(agent, hand)
@@ -718,7 +970,8 @@ class LiveGame:
                        "folded": sorted(engine.envite.folded),
                        "locked": envite.locked},
             "ordago": ({"caller": engine.ordago_caller,
-                        "context": engine.ordago_context}
+                        "context": engine.ordago_context,
+                        "declined_by": sorted(engine.ordago_declined_by)}
                        if engine.phase == Phase.ORDAGO_RESPONSE else None),
             "you": None,
             "reveal": self.reveal,
@@ -968,6 +1221,12 @@ class LiveHTTP(BaseHTTPRequestHandler):
         # a vaca can legitimately run long; 40 hands is a hard safety cap
         hands = fixed_hands or 40
 
+        nick = body.get("nick")
+        if isinstance(nick, str):
+            nick = " ".join(nick.split())[:20] or None
+        else:
+            nick = None
+
         if not _public:
             tbl = _table
             seat = tbl.current().seat_for_token(body.get("token"))
@@ -980,7 +1239,12 @@ class LiveHTTP(BaseHTTPRequestHandler):
             g2 = tbl.start_new(hands=hands,
                                seed=seed if isinstance(seed, int) else None,
                                vaca_limit=vaca_limit)
-            self._json({"ok": True, "epoch": g2.epoch, "vaca": bool(vaca_limit)})
+            if nick:
+                g2.player_nick = nick
+                if g2.human_agents:
+                    g2.human_agents[0].name = nick
+            self._json({"ok": True, "epoch": g2.epoch, "vaca": bool(vaca_limit),
+                        "sid": g2.sid})
             return
 
         if not _iplimit.allow(_client_ip(self)):
@@ -992,22 +1256,25 @@ class LiveHTTP(BaseHTTPRequestHandler):
         sid = _session_id(self, body) or _registry.new_sid()
         sess, note = _registry.create(sid, hands=hands, vaca_limit=vaca_limit)
         if sess is None:
-            self._json({"ok": False, "error": "la mesa est\u00e1 llena ahora "
-                        "mismo; prueba en unos minutos.", "retry": True}, 503)
+            err = {
+                "full": "la mesa est\u00e1 llena ahora mismo; prueba en unos minutos.",
+                "busy": "todas las mesas con modelos est\u00e1n ocupadas; prueba en un momento.",
+                "budget": "presupuesto diario de API agotado; prueba ma\u00f1ana.",
+                "offline": "no hay modelos disponibles ahora mismo; prueba en un momento.",
+            }.get(note, "no se pudo abrir la mesa; prueba en un momento.")
+            self._json({"ok": False, "error": err, "retry": True,
+                        "note": note}, 503)
             return
 
         game = sess.table.current()
+        if nick:
+            game.player_nick = nick
+            if game.human_agents:
+                game.human_agents[0].name = nick
         human = game.human_agents[0] if game.human_agents else None
         payload = {"ok": True, "epoch": game.epoch, "sid": sid,
                    "token": human.token if human else None,
                    "llm": sess.llm, "note": note}
-        if note == "budget":
-            payload["message"] = ("Presupuesto diario de API agotado: juegas "
-                                  "contra las pol\u00edticas offline.")
-        elif note == "busy":
-            payload["message"] = ("Todas las mesas con modelos est\u00e1n "
-                                  "ocupadas: juegas contra las pol\u00edticas "
-                                  "offline.")
         body_bytes = json.dumps(payload).encode("utf8")
         self._send_with_cookie(200, body_bytes, sid)
 
@@ -1207,41 +1474,40 @@ def main():
             o for o in os.environ.get("MUS_ALLOW_ORIGINS", "").split(",") if o)
 
         def _factory(llm: bool, hands: int):
-            # Seats are rebuilt per session so one browser's budget-exhausted
-            # table cannot hand offline seats to somebody else's game. Each
-            # nueva vaca rolls three rivals from the NAN chat catalog.
-            chosen = live_public.roll_lineup(specs)
-            print(f"  [seats] lineup {chosen}", flush=True)
-            tbl = LiveTable(live_public.public_specs(chosen, llm),
+            # Always seat real LLMs. If a rolled model cannot be built, mark it
+            # bad and re-roll — never swap in disguised heuristics.
+            tbl = LiveTable(["human", "heuristic", "heuristic", "heuristic"],
                             hands=hands, seed=args.seed)
-            # Keep the rolled models in lineup even if this session has to
-            # play offline heuristics (busy / budget / missing key).
-            tbl.lineup = list(chosen)
             original = tbl.start_new
-            state = {"llm": llm, "chosen": list(chosen)}
 
             def start_new(*a, **kw):
-                # Agents are constructed inside start_new(), so this is the
-                # only place that can catch a bad seat spec (missing API key,
-                # unknown provider). A table dealing heuristic hands beats one
-                # that 500s on every new game.
-                try:
-                    game = original(*a, **kw)
-                except Exception as e:  # noqa: BLE001
-                    if not state["llm"]:
-                        raise
-                    print(f"  [seats] offline fallback: {e}", flush=True)
-                    state["llm"] = False
-                    tbl.specs = live_public.public_specs(state["chosen"], False)
-                    game = original(*a, **kw)
-                if state["llm"]:
+                excluded: set[str] = set()
+                last_err: Exception | None = None
+                for attempt in range(8):
+                    chosen = live_public.roll_lineup(specs, exclude=excluded)
+                    print(f"  [seats] lineup {chosen} (try {attempt + 1})",
+                          flush=True)
+                    tbl.specs = list(chosen)
+                    tbl.lineup = list(chosen)
+                    try:
+                        game = original(*a, **kw)
+                    except Exception as e:  # noqa: BLE001
+                        last_err = e
+                        print(f"  [seats] drop failed models: {e}", flush=True)
+                        for s in chosen:
+                            if str(s).strip().lower() != "human":
+                                live_public.mark_bad_model(s)
+                                excluded.add(s)
+                        continue
                     game.agents = [live_public.budgeted_agent(ag, _budget)
                                    for ag in game.agents]
-                tbl.llm_active = state["llm"]
-                return game
+                    tbl.llm_active = True
+                    return game
+                raise RuntimeError(
+                    f"could not seat LLM rivals: {last_err}")
 
             tbl.start_new = start_new
-            tbl.llm_active = llm
+            tbl.llm_active = True
             return tbl
 
         _registry = live_public.SessionRegistry(_factory, _budget)

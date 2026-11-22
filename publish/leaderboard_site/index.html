@@ -1,0 +1,388 @@
+<meta charset="utf-8">
+<title>Mus Leaderboard</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: a dense, light data page in stacked bordered panels (standings, value scatter, skill tiles, top-5 cards, table), lime as the one accent, provider colours carry identity. */
+:root{
+  --bg:#ffffff; --panel:#ffffff; --soft:#f6f7f3; --line:#e5e7e0; --line-2:#d7dad1;
+  --fg:#181c21; --mut:#5d646d; --faint:#737a83;
+  --lime:#d7f77d; --lime-ink:#2f3d06; --ink:#16191d; --ink-fg:#ffffff;
+  --quad:rgba(199,239,92,.28);
+  --display:"Inter Tight","Inter",system-ui,sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --r:14px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d0f11; --panel:#121518; --soft:#171b1f; --line:#252a30; --line-2:#323840;
+  --fg:#eceef1; --mut:#a7aeb7; --faint:#8b929c;
+  --lime:#c9ef5f; --lime-ink:#1d2604; --ink:#eceef1; --ink-fg:#121518;
+  --quad:rgba(201,239,95,.10); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d0f11; --panel:#121518; --soft:#171b1f; --line:#252a30; --line-2:#323840;
+  --fg:#eceef1; --mut:#a7aeb7; --faint:#8b929c;
+  --lime:#c9ef5f; --lime-ink:#1d2604; --ink:#eceef1; --ink-fg:#121518;
+  --quad:rgba(201,239,95,.10); color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14.5px;line-height:1.5}
+a{color:inherit}
+.banner{background:var(--lime);color:var(--lime-ink);text-align:center;font-size:13.5px;padding-block:8px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.banner a{font-weight:600;text-decoration:none;margin-left:10px}
+.wrap{max-width:1180px;margin:0 auto;padding-block:0 72px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+nav.top{display:flex;align-items:center;gap:24px;padding-block:16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:8px;font-family:var(--display);font-weight:700;font-size:19px;text-decoration:none}
+.brand i{width:26px;height:26px;border-radius:7px;background:var(--ink);display:grid;place-items:center}
+.brand i svg{width:16px;height:16px}
+nav.top .links{display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px}
+nav.top .links a{text-decoration:none;color:var(--mut)}
+nav.top .links a:hover{color:var(--fg)}
+.cta{margin-left:auto;background:var(--ink);color:var(--ink-fg);text-decoration:none;font-weight:600;font-size:13.5px;
+  padding:9px 16px;border-radius:9px;display:inline-flex;gap:8px;align-items:center}
+.hero{padding-block:56px 30px}
+.hero h1{font-family:var(--display);font-weight:600;font-size:clamp(38px,6vw,64px);line-height:1.02;letter-spacing:-.025em;margin:0;text-wrap:balance;max-width:14ch}
+.hero p{color:var(--mut);max-width:62ch;margin:18px 0 0;font-size:15.5px}
+.dates{display:flex;gap:18px;color:var(--faint);font-size:12.5px;margin-top:14px;flex-wrap:wrap}
+h2{font-family:var(--display);font-weight:600;font-size:23px;letter-spacing:-.01em;margin:0;text-wrap:balance}
+.sub{color:var(--mut);font-size:13.5px;margin-top:4px}
+section{margin-top:44px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.phead{display:flex;flex-wrap:wrap;gap:12px 20px;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
+.seg{display:inline-flex;background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{font:inherit;font-size:12.5px;border:0;background:transparent;color:var(--mut);padding:5px 11px;border-radius:7px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--ink-fg)}
+.seg.lime button[aria-pressed="true"]{background:var(--lime);color:var(--lime-ink)}
+button:focus-visible,a:focus-visible,input:focus-visible,th:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.chart{overflow-x:auto}
+.chart svg{display:block;width:100%;min-width:640px;height:auto}
+svg text{fill:var(--mut);font-family:var(--body)}
+svg .val{fill:var(--fg);font-weight:600;font-family:var(--mono)}
+svg .grid{stroke:var(--line)}
+svg .lbl{fill:var(--fg);font-size:12px}
+svg .halo{paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}
+.foot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;color:var(--faint);font-size:12px;margin-top:12px}
+.foot a{color:var(--mut)}
+.logo-chip{width:22px;height:22px;border-radius:6px;background:#fff;border:1px solid var(--line);display:inline-grid;place-items:center;flex:none}
+.logo-chip img{width:15px;height:15px}
+/* heatmap */
+.tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));grid-auto-rows:118px;gap:6px}
+.tile{border-radius:6px;padding:12px;color:#fff;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer;
+  border:0;text-align:left;font:inherit;position:relative;min-width:0;overflow:hidden}
+.tile.big{grid-column:span 2;grid-row:span 2}
+.tile.wide{grid-column:span 2}
+.tile.half{grid-column:span 3}
+.tile .tn{font-weight:600;font-size:13px;line-height:1.25}
+.tile .tl{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500;min-width:0}
+.tile .tl span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .tv{position:absolute;top:10px;right:12px;font-family:var(--mono);font-size:12px;opacity:.9}
+.tile.none{background:var(--soft)!important;color:var(--faint);cursor:default}
+.tile[aria-pressed="true"]{outline:3px solid var(--fg);outline-offset:-3px}
+.detail{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;border-top:1px solid var(--line);margin-top:14px;padding-top:12px;font-size:13px}
+.detail small{display:block;color:var(--faint)}
+/* cards */
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.card h3{margin:0;font-family:var(--display);font-size:18px;font-weight:600}
+.pill{font-size:11.5px;border:1px solid var(--line-2);border-radius:7px;padding:2px 8px;color:var(--mut);white-space:nowrap}
+.rows{display:grid;gap:12px;margin-top:6px}
+.row{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:4px 10px;align-items:center}
+.rank{font-family:var(--mono);font-size:11px;color:var(--faint);text-align:center;border-radius:5px;padding:3px 4px;line-height:1.2}
+.rank.first{background:var(--lime);color:var(--lime-ink);font-weight:600}
+.row .nm{display:flex;gap:8px;align-items:center;min-width:0;font-size:13.5px}
+.row .nm span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .v{font-family:var(--mono);font-weight:600;font-size:13.5px}
+.row .track{grid-column:2/4;height:6px;background:var(--soft);border-radius:3px;overflow:hidden}
+.row .track i{display:block;height:100%;border-radius:3px}
+.row small{grid-column:2/4;color:var(--faint);font-size:11.5px;margin-top:-6px}
+.empty{color:var(--faint);font-size:13px;padding:8px 0}
+/* lists */
+.lists{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+/* table */
+.tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tools input{font:inherit;font-size:13.5px;padding:8px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel);color:var(--fg);min-width:0;width:260px;max-width:100%}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r)}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:920px}
+th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:600;font-size:12px;color:var(--fg);background:var(--soft);cursor:pointer;user-select:none;vertical-align:bottom}
+th small{display:block;font-weight:400;color:var(--faint)}
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3){text-align:left}
+td{font-variant-numeric:tabular-nums}
+td .nm{display:flex;gap:8px;align-items:center}
+tr:last-child td{border-bottom:0}
+.dash{color:var(--faint)}
+@media (max-width:900px){
+  .tiles{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:104px}
+  .cards,.lists{grid-template-columns:1fr}
+}
+@media (max-width:520px){
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .tile.big{grid-column:span 2;grid-row:span 1}
+  .tile.half{grid-column:span 2}
+  .cta{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="banner"><b>New:</b> <span id="banner-txt">the mus Elo tournament is live.</span><a href="replays.html">Watch the matches ↗</a></div>
+<div class="wrap">
+  <nav class="top" aria-label="Main">
+    <a class="brand" href="#top"><i><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="2" width="9" height="13" rx="2" fill="#d7f77d"/><rect x="8" y="5" width="9" height="13" rx="2" fill="#fff"/></svg></i>mus·bench</a>
+    <div class="links"><a href="#overall">Standings</a><a href="#value">Speed</a><a href="#heatmap">Skills</a><a href="#best">Best per skill</a><a href="#compare">Compare</a></div>
+    <a class="cta" href="replays.html">▶ Watch matches</a>
+  </nav>
+
+  <div class="hero" id="top">
+    <h1>Mus leaderboard for language models</h1>
+    <p>Teams of two models play Spanish mus against each other on the same cards, seats swapped. Every model starts at the same Elo; skills are scored against the engine's view of every hand.</p>
+    <div class="dates"><span id="d-upd"></span><span id="d-tour"></span></div>
+  </div>
+
+  <section id="overall">
+    <div class="panel">
+      <div class="phead">
+        <div><h2>Best overall</h2><div class="sub" id="ov-sub">Elo from mirrored games between models.</div></div>
+        <div class="seg" id="ov-filter" role="group" aria-label="Filter by harness"></div>
+      </div>
+      <div class="chart" id="ov-chart"></div>
+      <div class="foot"><span id="ov-foot"></span><span>Bars show the fitted Elo; the line marks the start (1000).</span></div>
+    </div>
+  </section>
+
+  <section id="value">
+    <div class="phead" style="margin-bottom:12px"><div><h2>Elo vs speed: who plays well, fast</h2>
+      <div class="sub">Fitted Elo against the average seconds a model takes per decision.</div></div></div>
+    <div class="panel"><div class="chart" id="sc-chart"></div>
+      <div class="foot"><span id="sc-foot"></span><span>Dividers sit at the median speed and median Elo.</span></div></div>
+  </section>
+
+  <section id="heatmap">
+    <div class="phead" style="margin-bottom:12px"><div><h2>Mus heatmap</h2>
+      <div class="sub">Who leads each part of the game. Tiles take the leader's colour.</div></div></div>
+    <div class="panel">
+      <div class="phead"><div class="seg lime" id="hm-tabs" role="group" aria-label="Skill group"></div><span class="sub" id="hm-count"></span></div>
+      <div class="tiles" id="tiles"></div>
+      <div class="detail" id="hm-detail"></div>
+    </div>
+  </section>
+
+  <section id="best">
+    <h2 style="margin-bottom:14px">Best models per skill</h2>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section>
+    <h2 style="margin-bottom:14px">Fastest and most decisive</h2>
+    <div class="lists" id="lists"></div>
+  </section>
+
+  <section id="compare">
+    <div class="phead"><div><h2>Model comparison</h2><div class="sub">Every model in the tournament. Click a column to sort.</div></div>
+      <div class="tools"><input id="q" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div></div>
+    <div class="tablewrap"><table id="tbl"></table></div>
+    <div class="foot"><span>Fold and call accuracy use the engine's ground truth for the lance being bet. Sample sizes are in the tooltips.</span>
+      <a href="https://github.com/alektebel/mus-benchmark/blob/master/docs/SCORING.md">Method ↗</a></div>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const MIN_N = 5;
+let D, harnessFilter = "All";
+
+const M = id => D.models[id] || {name:id, provider:"", color:"#8a8f9e", harness:""};
+const icon = id => M(id).model_icon || M(id).provider_icon;
+const chip = id => icon(id) ? `<span class="logo-chip"><img src="icons/${icon(id)}.svg" alt=""></span>` : `<span class="logo-chip" style="font-size:11px;font-weight:700;color:#333">${esc((M(id).provider||M(id).name)[0])}</span>`;
+// dark text on light brand colours, white on dark ones (WCAG relative luminance)
+function inkFor(hex){
+  const n = parseInt(hex.slice(1),16), ch = [n>>16, n>>8&255, n&255].map(v=>{ v/=255; return v<=.03928 ? v/12.92 : ((v+.055)/1.055)**2.4; });
+  const L = .2126*ch[0] + .7152*ch[1] + .0722*ch[2];
+  return L > .3 ? "#15181c" : "#ffffff";
+}
+const pct = v => v == null ? "—" : (v*100).toFixed(0) + "%";
+const fmtDate = s => { if (!s) return "—"; const d = new Date(s); return isNaN(d) ? s : d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}); };
+function rows(){ return D.leaderboard.filter(r => harnessFilter === "All" || M(r.model).harness === harnessFilter); }
+
+/* ---------- best overall ---------- */
+function drawOverall(){
+  const hs = ["All", ...new Set(Object.values(D.models).map(m=>m.harness))];
+  const f = $("#ov-filter"); f.innerHTML = "";
+  hs.forEach(h => { const b = document.createElement("button"); b.textContent = h; b.setAttribute("aria-pressed", h===harnessFilter);
+    b.onclick = () => { harnessFilter = h; drawOverall(); drawScatter(); }; f.append(b); });
+  const rs = rows().filter(r=>r.games>0).sort((a,b)=>b.elo-a.elo);
+  const W = 1000, H = 330, L = 40, B = 92, T = 24, plotH = H - B - T;
+  if (!rs.length){ $("#ov-chart").innerHTML = `<p class="empty">No games yet for this filter.</p>`; return; }
+  const lo = Math.floor((Math.min(D.start_elo, ...rs.map(r=>r.elo)) - 60)/50)*50;
+  const hi = Math.ceil((Math.max(D.start_elo, ...rs.map(r=>r.elo)) + 30)/50)*50;
+  const y = v => T + plotH - ((v-lo)/(hi-lo))*plotH;
+  const bw = Math.min(56, (W-L-10)/rs.length - 8), step = (W-L-10)/rs.length;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Elo by model">`;
+  for (let v = lo; v <= hi; v += 50){ s += `<line class="grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="${L-6}" y="${y(v)+4}" font-size="11" text-anchor="end">${v}</text>`; }
+  s += `<line x1="${L}" x2="${W}" y1="${y(D.start_elo)}" y2="${y(D.start_elo)}" stroke="var(--faint)" stroke-dasharray="4 4"/>`;
+  rs.forEach((r,i) => {
+    const cx = L + step*i + step/2, x = cx - bw/2, top = y(r.elo), m = M(r.model);
+    s += `<g><title>${esc(m.name)} · ${Math.round(r.elo)} Elo (95% CI ${Math.round(r.ci_low)}–${Math.round(r.ci_high)}) · ${r.games} games · ${r.record}</title>
+      <rect x="${x}" y="${top}" width="${bw}" height="${T+plotH-top}" rx="4" fill="${m.color}"/>
+      <text class="val" x="${cx}" y="${top-7}" font-size="12.5" text-anchor="middle">${Math.round(r.elo)}</text>`;
+    if (icon(r.model) && T+plotH-top > 34) s += `<circle cx="${cx}" cy="${top+17}" r="11" fill="#fff"/><image href="icons/${icon(r.model)}.svg" x="${cx-7.5}" y="${top+9.5}" width="15" height="15"/>`;
+    s += `<text class="lbl" transform="translate(${cx+4},${T+plotH+14}) rotate(-38)" text-anchor="end">${esc(m.name)}</text></g>`;
+  });
+  $("#ov-chart").innerHTML = s + "</svg>";
+  const games = D.history.length;
+  $("#ov-foot").textContent = `${rs.length} models with games · ${games} games (${games*2} matches) · everyone started at ${D.start_elo}`;
+}
+
+/* ---------- elo vs speed ---------- */
+function drawScatter(){
+  const pts = rows().filter(r=>r.games>0 && D.skills[r.model]?.sec_per_move).map(r=>({id:r.model, e:r.elo, s:D.skills[r.model].sec_per_move}));
+  if (pts.length < 2){ $("#sc-chart").innerHTML = `<p class="empty">Needs two or more models with games.</p>`; return; }
+  const W = 1000, H = 400, L = 56, R = 24, T = 20, B = 46;
+  const sx = pts.map(p=>p.s), lx0 = Math.log10(Math.min(...sx)*0.8), lx1 = Math.log10(Math.max(...sx)*1.25);
+  const e0 = Math.min(...pts.map(p=>p.e)) - 40, e1 = Math.max(...pts.map(p=>p.e)) + 40;
+  const x = v => L + (Math.log10(v)-lx0)/(lx1-lx0)*(W-L-R), y = v => T + (1-(v-e0)/(e1-e0))*(H-T-B);
+  const med = a => { const b = [...a].sort((p,q)=>p-q), n = b.length; return n%2 ? b[(n-1)/2] : (b[n/2-1]+b[n/2])/2; };
+  const ms = med(sx), me = med(pts.map(p=>p.e));
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Elo against seconds per decision">`;
+  s += `<rect x="${L}" y="${T}" width="${x(ms)-L}" height="${y(me)-T}" fill="var(--quad)"/>`;
+  s += `<text x="${L+10}" y="${T+18}" font-size="12" font-weight="600" style="fill:var(--fg)">Most attractive</text>`;
+  const ticks = [0.2,0.5,1,2,5,10,20,50].filter(t=>Math.log10(t)>=lx0 && Math.log10(t)<=lx1);
+  for (const t of ticks) s += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H-B}"/><text x="${x(t)}" y="${H-B+16}" font-size="11" text-anchor="middle">${t}s</text>`;
+  for (let v = Math.ceil(e0/50)*50; v <= e1; v += 50) s += `<line class="grid" x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L-8}" y="${y(v)+4}" font-size="11" text-anchor="end">${v}</text>`;
+  s += `<line x1="${x(ms)}" x2="${x(ms)}" y1="${T}" y2="${H-B}" stroke="var(--faint)" stroke-dasharray="4 4"/><line x1="${L}" x2="${W-R}" y1="${y(me)}" y2="${y(me)}" stroke="var(--faint)" stroke-dasharray="4 4"/>`;
+  s += `<text x="${L}" y="${T-6}" font-size="11">Elo · higher is better</text><text x="${(L+W-R)/2}" y="${H-8}" font-size="11" text-anchor="middle">Seconds per decision · log scale · lower is better</text>`;
+  // labels: nudge apart vertically so close points stay readable, flip near the right edge
+  const placed = [];
+  let dots = "", labels = "";
+  pts.sort((a,b)=>y(a.e)-y(b.e) || x(a.s)-x(b.s)).forEach(p => { const m = M(p.id);
+    const px = x(p.s), py = y(p.e), right = px > W - R - 190;
+    let ly = py + 4;
+    while (placed.some(q => Math.abs(q.y-ly) < 15 && Math.abs(q.x-px) < 190)) ly += 15;
+    placed.push({x:px, y:ly});
+    const lx = right ? px - 11 : px + 11;
+    dots += `<g><title>${esc(m.name)} · ${Math.round(p.e)} Elo · ${p.s.toFixed(1)} s per decision · ${esc(m.harness)}</title>
+      ${Math.abs(ly-py-4) > 1 ? `<line x1="${px}" y1="${py}" x2="${lx}" y2="${ly-4}" stroke="var(--line-2)"/>` : ""}
+      <circle cx="${px}" cy="${py}" r="7" fill="${m.color}" stroke="var(--panel)" stroke-width="2"/></g>`;
+    labels += `<text class="lbl halo" x="${lx}" y="${ly}" text-anchor="${right?"end":"start"}">${esc(m.name)}</text>`; });
+  s += dots + labels;
+  $("#sc-chart").innerHTML = s + "</svg>";
+  $("#sc-foot").textContent = `${pts.length} models · speed is wall time per decision through each model's harness (API or CLI), so it includes CLI start-up`;
+}
+
+/* ---------- heatmap ---------- */
+const GROUPS = {"Card play":["lance_Grande","lance_Chica","lance_Pares","lance_Juego"],
+                "Betting":["fold_accuracy","call_accuracy","bluff_success","value_rate","ordago_wins"],
+                "Table talk":["reads","partner"]};
+GROUPS["All skills"] = [...GROUPS["Card play"], ...GROUPS["Betting"], ...GROUPS["Table talk"]];
+const NKEY = {fold_accuracy:"fold_n",call_accuracy:"call_n",bluff_success:"bluff_n",value_rate:"bet_n",ordago_wins:"ordago_n",
+              reads:"why_n",partner:"why_n",lance_Grande:"lance_Grande_n",lance_Chica:"lance_Chica_n",lance_Pares:"lance_Pares_n",lance_Juego:"lance_Juego_n"};
+let hmTab = "All skills", hmSel = null;
+function ranked(k){
+  return Object.entries(D.skills).filter(([id,s]) => s[k] != null && (s[NKEY[k]]||0) >= MIN_N && D.models[id])
+    .map(([id,s]) => ({id, v:s[k], n:s[NKEY[k]]})).sort((a,b)=>b.v-a.v);
+}
+function drawHeatmap(){
+  const t = $("#hm-tabs"); t.innerHTML = "";
+  Object.keys(GROUPS).forEach(g => { const b = document.createElement("button"); b.textContent = g; b.setAttribute("aria-pressed", g===hmTab);
+    b.onclick = () => { hmTab = g; hmSel = null; drawHeatmap(); }; t.append(b); });
+  const keys = GROUPS[hmTab], box = $("#tiles"); box.innerHTML = "";
+  $("#hm-count").textContent = `${keys.length} skills`;
+  keys.forEach((k,i) => {
+    const r = ranked(k), d = D.skill_defs[k], lead = r[0];
+    const b = document.createElement("button");
+    const span = hmTab==="All skills" ? ({lance_Grande:" big",lance_Chica:" big",lance_Pares:" wide",lance_Juego:" wide",
+                  ordago_wins:" wide",reads:" half",partner:" half"}[k] || "") : (i===0?" big":"");
+    b.className = "tile" + span + (lead?"":" none");
+    if (lead){ const c = M(lead.id).color; b.style.background = `linear-gradient(160deg, ${c}, color-mix(in srgb, ${c} 72%, #000))`;
+      b.style.color = inkFor(c); }
+    const ties = lead ? r.filter(x=>Math.abs(x.v-lead.v)<1e-9).length-1 : 0;
+    b.innerHTML = `<span class="tn">${esc(d.name)}</span>${lead?`<span class="tv">${pct(lead.v)}</span>`:""}
+      <span class="tl">${lead ? chip(lead.id)+`<span>${esc(M(lead.id).name)}${ties?` <small>+ ${ties} tied</small>`:""}</span>` : `<span>needs ${MIN_N}+ decisions</span>`}</span>`;
+    b.setAttribute("aria-pressed", hmSel===k);
+    if (lead) b.onclick = () => { hmSel = k; drawHeatmap(); };
+    box.append(b);
+  });
+  const k = hmSel || keys.find(k=>ranked(k).length) || keys[0], r = ranked(k), d = D.skill_defs[k];
+  $("#hm-detail").innerHTML = `<div><b>${esc(d.name)}</b><small>${pct(r[0]?.v)} ${esc(d.def)}</small></div>
+    <div style="text-align:right"><b>${r[0] ? esc(M(r[0].id).name) : "—"}</b><small>${r.length} models · higher is better</small></div>`;
+}
+
+/* ---------- best per skill ---------- */
+function drawCards(){
+  const pick = ["fold_accuracy","call_accuracy","bluff_success","value_rate","reads","partner"];
+  const box = $("#cards"); box.innerHTML = "";
+  for (const k of pick){
+    const d = D.skill_defs[k], r = ranked(k).slice(0,5);
+    const c = document.createElement("div"); c.className = "panel card";
+    c.innerHTML = `<div class="phead" style="margin-bottom:10px"><h3>Best in ${esc(d.name.toLowerCase())}</h3><span class="pill">${k==="reads"||k==="partner"?"from reasons":"vs ground truth"}</span></div>
+      <div class="rows">${r.length ? r.map((x,i)=>`<div class="row" title="${x.n} decisions">
+        <span class="rank${i===0?" first":""}">${String(i+1).padStart(2,"0")}</span>
+        <span class="nm">${chip(x.id)}<span>${esc(M(x.id).name)}</span></span><span class="v">${pct(x.v)}</span>
+        <span class="track"><i style="width:${(x.v*100).toFixed(1)}%;background:${M(x.id).color}"></i></span></div>`).join("")
+        : `<p class="empty">Not enough decisions yet.</p>`}</div>
+      <div class="foot" style="margin-top:14px"><span>${esc(d.def.charAt(0).toUpperCase()+d.def.slice(1))}.</span></div>`;
+    box.append(c);
+  }
+}
+
+/* ---------- lists ---------- */
+function drawLists(){
+  const ids = Object.keys(D.models).filter(id => D.skills[id]);
+  const lb = Object.fromEntries(D.leaderboard.map(r=>[r.model,r]));
+  const L = [
+    {t:"Fastest decisions", u:"s / move", note:"Wall time per decision · lower is better",
+     r: ids.filter(i=>D.skills[i].sec_per_move).map(i=>({id:i, v:D.skills[i].sec_per_move, s:`${D.skills[i].sec_per_move.toFixed(1)}s`})).sort((a,b)=>a.v-b.v)},
+    {t:"Biggest winners", u:"piedras / hand", note:"Margin over both seatings · higher is better",
+     r: Object.values(lb).filter(r=>r.games>0).map(r=>({id:r.model, v:r.per_hand, s:`${r.per_hand>=0?"+":""}${(+r.per_hand).toFixed(1)}`})).sort((a,b)=>b.v-a.v)},
+    {t:"Boldest bettors", u:"bluff rate", note:"Bets made from a bottom-third hand",
+     r: ids.filter(i=>D.skills[i].bluff_rate!=null && D.skills[i].bet_n>=MIN_N).map(i=>({id:i, v:D.skills[i].bluff_rate, s:pct(D.skills[i].bluff_rate)})).sort((a,b)=>b.v-a.v)}];
+  $("#lists").innerHTML = L.map(l => {
+    const mx = Math.max(...l.r.map(x=>Math.abs(x.v)), 1e-9);
+    return `<div class="panel"><div class="phead" style="margin-bottom:6px"><div><h3 style="margin:0;font-family:var(--display);font-size:17px">${l.t}</h3><div class="sub">${l.note}</div></div><span class="pill">${l.u}</span></div>
+      <div class="rows">${l.r.slice(0,5).map((x,i)=>`<div class="row"><span class="rank${i===0?" first":""}">${String(i+1).padStart(2,"0")}</span>
+      <span class="nm">${chip(x.id)}<span>${esc(M(x.id).name)} <small class="dash">via ${esc(M(x.id).harness)}</small></span></span><span class="v">${x.s}</span>
+      <span class="track"><i style="width:${(Math.abs(x.v)/mx*100).toFixed(1)}%;background:${M(x.id).color}"></i></span></div>`).join("") || `<p class="empty">No data yet.</p>`}</div></div>`;
+  }).join("");
+}
+
+/* ---------- table ---------- */
+const COLS = [
+  ["Model","",r=>M(r.model).name, r=>`<span class="nm">${chip(r.model)}${esc(M(r.model).name)}</span>`],
+  ["Provider","",r=>M(r.model).provider, r=>esc(M(r.model).provider)],
+  ["Harness","",r=>M(r.model).harness, r=>esc(M(r.model).harness)],
+  ["Elo","fitted",r=>r.elo, r=>`<b>${Math.round(r.elo)}</b>`],
+  ["95% CI","Elo",r=>r.ci_high-r.ci_low, r=>r.games?`${Math.round(r.ci_low)}–${Math.round(r.ci_high)}`:'<span class="dash">—</span>'],
+  ["Live Elo","K = 32",r=>r.live, r=>Math.round(r.live)],
+  ["Games","mirrored",r=>r.games, r=>r.games],
+  ["W-L-D","",r=>r.games?(r.record.split("-")[0]/r.games):-1, r=>r.record],
+  ["Piedras","per hand",r=>r.per_hand, r=>r.games?`${r.per_hand>=0?"+":""}${(+r.per_hand).toFixed(1)}`:'<span class="dash">—</span>'],
+  ["Fold acc.","ground truth",r=>D.skills[r.model]?.fold_accuracy??-1, r=>cell(r,"fold_accuracy","fold_n")],
+  ["Call acc.","ground truth",r=>D.skills[r.model]?.call_accuracy??-1, r=>cell(r,"call_accuracy","call_n")],
+  ["Bluff rate","weak-hand bets",r=>D.skills[r.model]?.bluff_rate??-1, r=>cell(r,"bluff_rate","bet_n")],
+  ["Speed","s / decision",r=>D.skills[r.model]?.sec_per_move??1e9, r=>{const v=D.skills[r.model]?.sec_per_move; return v?v.toFixed(1):'<span class="dash">—</span>';}],
+];
+function cell(r,k,nk){ const s = D.skills[r.model]; if (!s || s[k]==null) return '<span class="dash">—</span>'; return `<span title="${s[nk]} decisions">${pct(s[k])}</span>`; }
+let sortCol = 3, sortDir = -1;
+function drawTable(){
+  const q = $("#q").value.trim().toLowerCase();
+  const rs = D.leaderboard.filter(r => !q || (M(r.model).name+" "+M(r.model).provider+" "+r.model).toLowerCase().includes(q));
+  const [, , key] = COLS[sortCol];
+  rs.sort((a,b)=>{ const x = key(a), y = key(b); return (x>y?1:x<y?-1:0)*sortDir; });
+  $("#tbl").innerHTML = `<thead><tr>${COLS.map((c,i)=>`<th tabindex="0" data-i="${i}" aria-sort="${i===sortCol?(sortDir>0?"ascending":"descending"):"none"}">${c[0]}${i===sortCol?(sortDir>0?" ↑":" ↓"):""}<small>${c[1]||"&nbsp;"}</small></th>`).join("")}</tr></thead>
+    <tbody>${rs.map(r=>`<tr>${COLS.map(c=>`<td>${c[3](r)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  $("#tbl").querySelectorAll("th").forEach(th => { const go = () => { const i = +th.dataset.i; sortDir = i===sortCol ? -sortDir : (i<3?1:-1); sortCol = i; drawTable(); };
+    th.onclick = go; th.onkeydown = e => { if (e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } }; });
+}
+
+async function boot(){
+  try { D = await (await fetch("data.json")).json(); }
+  catch(e){ document.querySelector(".hero").insertAdjacentHTML("beforeend", `<p class="empty">Could not load data.json.</p>`); return; }
+  const games = D.history.length, lead = [...D.leaderboard].filter(r=>r.games).sort((a,b)=>b.elo-a.elo)[0];
+  $("#banner-txt").textContent = lead ? `${games} games played · ${M(lead.model).name} leads at ${Math.round(lead.elo)} Elo.` : "the mus Elo tournament is live.";
+  $("#d-upd").textContent = `Updated: ${fmtDate(D.updated)}`;
+  $("#d-tour").textContent = `Tournament: ${D.tournament} · ${D.protocol}`;
+  drawOverall(); drawScatter(); drawHeatmap(); drawCards(); drawLists(); drawTable();
+  $("#q").addEventListener("input", drawTable);
+}
+boot();
+</script>

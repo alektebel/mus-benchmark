@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from musbench.agents.baselines import HeuristicPolicy, RandomPolicy
 from musbench.mus.deck import Card, make_deck
-from musbench.mus.engine import IllegalAction, MusEngine, Phase
+from musbench.mus.engine import EnviteState, IllegalAction, MusEngine, Phase
 
 
 def hand(*ranks):
@@ -106,14 +106,89 @@ class EngineRegressionTests(unittest.TestCase):
             self.assertEqual(self.engine.current_seat, seat)
             self.engine.apply(seat, {"action": "discard", "cards": [str(self.engine.hands[seat][0])]})
 
+    def test_perete_dumps_4567_and_draws_fresh_hand(self):
+        from musbench.mus.engine import is_perete
+        e = self.engine
+        e.hands[0] = hand("cuatro", "cinco", "seis", "siete")
+        e.phase = e.phase  # MUS_REQUEST after deal
+        e.current_seat = 0
+        self.assertTrue(is_perete(e.hands[0]))
+        self.assertIn("perete", e.legal_actions(0))
+        before = {str(c) for c in e.hands[0]}
+        pile_before = len(e.draw_pile)
+        e.apply(0, {"action": "perete"})
+        self.assertEqual(e.phase, Phase.MUS_REQUEST)
+        self.assertEqual(e.current_seat, 0)
+        self.assertEqual(len(e.hands[0]), 4)
+        self.assertNotEqual({str(c) for c in e.hands[0]}, before)
+        self.assertEqual(len(e.draw_pile), pile_before - 4)
+        self.assertEqual(len(e.discard_pile), 4)
+        # non-perete hands cannot shout it
+        e.hands[0] = hand("rey", "as", "dos", "sota")
+        self.assertNotIn("perete", e.legal_actions(0))
+
     def test_declined_ordago_still_requires_callers_mus_consent(self):
+        # Both opposing seats must retract; one no-quiero leaves the órdago open.
         self.engine.apply(0, {"action": "ordago"})
+        self.assertEqual(self.engine.phase, Phase.ORDAGO_RESPONSE)
         self.engine.apply(1, {"action": "no-quiero"})
+        self.assertEqual(self.engine.phase, Phase.ORDAGO_RESPONSE)
+        self.assertEqual(self.engine.current_seat, 3)
+        self.engine.apply(3, {"action": "no-quiero"})
+        self.assertEqual(self.engine.phase, Phase.MUS_REQUEST)
         self.assertEqual(self.engine.current_seat, 0)
         self.assertNotIn("ordago", self.engine.legal_actions(0))
         for seat in range(4):
             self.engine.apply(seat, {"action": "mus"})
         self.assertEqual(self.engine.mus_want, {0, 1, 2, 3})
+
+    def test_ordago_needs_both_rivals_to_retract(self):
+        # Lance órdago: first rival's no-quiero only folds that seat; the other
+        # may still quiero. Both must retract before the lance advances.
+        from musbench.mus.engine import TEAM_OF
+        e = self.engine
+        e.apply(0, {"action": "no"})
+        self.assertEqual(e.phase, Phase.ENVITE)
+        opener = e.current_seat
+        e.apply(opener, {"action": "ordago"})
+        self.assertEqual(e.phase, Phase.ORDAGO_RESPONSE)
+        caller = e.ordago_caller
+        caller_team = TEAM_OF[caller]
+        grande = e.lance_index
+        before_pts = (e.points_a, e.points_b)
+        retracted = []
+        for _ in range(4):
+            if e.phase != Phase.ORDAGO_RESPONSE:
+                break
+            seat = e.current_seat
+            self.assertNotEqual(TEAM_OF[seat], caller_team)
+            e.apply(seat, {"action": "no-quiero"})
+            retracted.append(seat)
+            if len(retracted) == 1:
+                self.assertEqual(e.phase, Phase.ORDAGO_RESPONSE)
+                self.assertEqual(e.lance_index, grande)
+                self.assertEqual((e.points_a, e.points_b), before_pts)
+                other = e.current_seat
+                self.assertNotEqual(other, seat)
+                self.assertIn("quiero", e.legal_actions(other))
+        self.assertEqual(len(retracted), 2)
+        self.assertGreater(e.lance_index, grande)  # Grande → Chica
+        self.assertNotEqual((e.points_a, e.points_b), before_pts)
+
+    def test_second_rival_can_accept_ordago_after_partner_retracts(self):
+        from musbench.mus.engine import TEAM_OF
+        e = self.engine
+        e.apply(0, {"action": "no"})
+        opener = e.current_seat
+        e.apply(opener, {"action": "ordago"})
+        caller_team = TEAM_OF[e.ordago_caller]
+        first = e.current_seat
+        e.apply(first, {"action": "no-quiero"})
+        self.assertEqual(e.phase, Phase.ORDAGO_RESPONSE)
+        second = e.current_seat
+        self.assertNotEqual(TEAM_OF[second], caller_team)
+        e.apply(second, {"action": "quiero"})
+        self.assertEqual(e.phase, Phase.DONE)
 
     def test_heuristic_cannot_use_partner_cards(self):
         self.engine.apply(0, {"action": "no"})
@@ -122,6 +197,43 @@ class EngineRegressionTests(unittest.TestCase):
         before = policy.act(self.engine, 0, self.engine.legal_actions(0))
         self.engine.hands[2] = hand("rey", "rey", "tres", "tres")
         self.assertEqual(policy.act(self.engine, 0, self.engine.legal_actions(0)), before)
+
+    def test_envite_needs_both_rivals_to_decline(self):
+        # One rival's no-quiero only folds that seat; the other may still
+        # quiero / raise. Decline settles only after both opposing seats fold.
+        from musbench.mus.engine import TEAM_OF
+        e = self.engine
+        e.apply(0, {"action": "no"})          # no hay mus -> Grande envite
+        self.assertEqual(e.phase, Phase.ENVITE)
+        opener = e.current_seat
+        e.apply(opener, {"action": "envido"})
+        holder = e.envite.holder
+        holder_team = TEAM_OF[holder]
+        before_pts = (e.points_a, e.points_b)
+        rivals_folded = []
+        grande = e.lance_index
+        for _ in range(8):
+            if e.lance_index != grande:
+                break
+            seat = e.current_seat
+            if TEAM_OF[seat] == holder_team:
+                e.apply(seat, {"action": "paso"})
+                continue
+            e.apply(seat, {"action": "no-quiero"})
+            rivals_folded.append(seat)
+            if len(rivals_folded) == 1:
+                self.assertEqual(e.lance_index, grande)
+                self.assertEqual((e.points_a, e.points_b), before_pts)
+                other = e.current_seat
+                while (e.lance_index == grande and e.phase == Phase.ENVITE
+                       and TEAM_OF[other] == holder_team):
+                    e.apply(other, {"action": "paso"})
+                    other = e.current_seat
+                if e.lance_index == grande:
+                    self.assertIn("quiero", e.legal_actions(other))
+        self.assertEqual(len(rivals_folded), 2)
+        self.assertGreater(e.lance_index, grande)  # declined Grande -> next lance
+        self.assertNotEqual((e.points_a, e.points_b), before_pts)
 
     def test_mus_equivalent_pair_is_kept(self):
         # rey counts as tres: the rey-tres pair is kept, the low cards tossed
@@ -161,3 +273,56 @@ class EngineRegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OrdagoAndTieRulesTest(unittest.TestCase):
+    """Regressions found by the Fable 5.2 harness check (2026-11-22)."""
+
+    @staticmethod
+    def _hands(spec):
+        from musbench.mus.deck import Card
+        return {s: [Card(*c.split(" de ")) for c in cards]
+                for s, cards in spec.items()}
+
+    def test_lance_ordago_is_decided_by_that_lance_only(self):
+        # Fable hand 5: seat 3 (team B) órdago at Juego with 32; seat 2
+        # (team A) holds 36 and wins Grande/Chica/Pares. B must take the vaca.
+        e = MusEngine(rng=Random(0))
+        e.deal()
+        e.hands = self._hands({
+            0: ["siete de copas", "as de copas", "cinco de oros", "tres de espadas"],
+            1: ["seis de oros", "cinco de copas", "seis de bastos", "siete de oros"],
+            2: ["caballo de espadas", "rey de espadas", "seis de copas", "tres de bastos"],
+            3: ["sota de espadas", "siete de espadas", "caballo de copas", "cinco de espadas"]})
+        e.mano = 0
+        e.lance_index = 3
+        e.phase = Phase.ENVITE
+        e.envite = EnviteState()
+        e.envite.folded = {0, 1}          # only juego holders bet
+        e.current_seat = 3
+        e.apply(3, {"action": "ordago"})
+        e.apply(e.current_seat, {"action": "quiero"})
+        self.assertEqual(e.phase, Phase.DONE)
+        self.assertEqual(e.vacas_b, 1)
+        self.assertEqual(e.vacas_a, 0)
+
+    def test_ties_go_to_the_side_nearest_the_mano(self):
+        e = MusEngine(rng=Random(0))
+        e.deal()
+        same = ["rey de {}", "caballo de {}", "sota de {}", "siete de {}"]
+        e.hands = self._hands({s: [c.format(p) for c in same]
+                               for s, p in zip(range(4), ["oros", "copas", "espadas", "bastos"])})
+        for mano, team in ((0, 0), (1, 1), (2, 0), (3, 1)):
+            e.mano = mano
+            self.assertEqual(e._lance_winner("Grande"), team)
+            self.assertEqual(e._lance_winner("Chica"), team)
+
+    def test_nobody_wins_pares_when_nobody_has_pares(self):
+        e = MusEngine(rng=Random(0))
+        e.deal()
+        e.hands = self._hands({
+            0: ["rey de oros", "caballo de oros", "sota de oros", "siete de oros"],
+            1: ["rey de copas", "caballo de copas", "sota de copas", "seis de copas"],
+            2: ["as de oros", "dos de oros", "cuatro de oros", "cinco de oros"],
+            3: ["as de copas", "dos de copas", "cuatro de copas", "cinco de copas"]})
+        self.assertIsNone(e._lance_winner("Pares"))

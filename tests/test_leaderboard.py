@@ -152,8 +152,8 @@ class OfflineRunTest(unittest.TestCase):
                 '[[model]]\nid = "heuristic"\n[[model]]\nid = "random"\n')
             readme = d / "README.md"
             readme.write_text("# t\n")
-            old = cli.CONFIG, cli.LEDGER, cli.ROOT
-            cli.CONFIG, cli.LEDGER = cfg_path, ledger
+            old = cli.CONFIG, cli.LEDGER, cli.ROOT, cli.REPLAYS
+            cli.CONFIG, cli.LEDGER, cli.REPLAYS = cfg_path, ledger, d / "replays"
             try:
                 cfg = cli.load_config(cfg_path)
                 cli.cmd_run(cfg, [], SimpleNamespace(
@@ -170,8 +170,99 @@ class OfflineRunTest(unittest.TestCase):
                 self.assertEqual(len(out["rows"]), 2)
                 self.assertIn(render.START, readme.read_text())
             finally:
-                cli.CONFIG, cli.LEDGER, cli.ROOT = old
+                cli.CONFIG, cli.LEDGER, cli.ROOT, cli.REPLAYS = old
+
+    def test_elo_tournament_round_writes_replays_and_history(self):
+        from musbench.leaderboard import replay
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "benchmark").mkdir()
+            cfg_path, ledger = d / "models.toml", d / "matches.jsonl"
+            cfg_path.write_text(
+                '[benchmark]\nprotocol = "t"\nharness = "menu"\nhands = 2\n'
+                'seeds = [0]\nanchor = ""\nstart_elo = 1500\ntournament = "tt"\n'
+                'bootstrap = 20\n[[model]]\nid = "heuristic"\n[[model]]\nid = "random"\n')
+            (d / "README.md").write_text("# t\n")
+            old = cli.CONFIG, cli.LEDGER, cli.ROOT, cli.REPLAYS
+            cli.CONFIG, cli.LEDGER, cli.REPLAYS = cfg_path, ledger, d / "replays"
+            try:
+                cfg = cli.load_config(cfg_path)
+                cli.cmd_swiss(cfg, [], SimpleNamespace(
+                    rounds=1, games=1, exclude=None, pairs=None, workers=2,
+                    job_timeout=300, out=str(d / "raw"), boot=20))
+                rows = cli.load_ledger(ledger)
+                self.assertEqual(len(rows), 2)
+                self.assertTrue(all(r["tournament"] == "tt" for r in rows))
+                rp = replay.read(d / "replays" / "tt" / (rows[0]["match_id"] + ".json.gz"))
+                self.assertEqual(rp["format"], "mus-replay/1")
+                self.assertEqual(len(rp["hands"]), 2)
+                self.assertTrue(rp["hands"][0]["events"])
+                self.assertIn("dealt", rp["hands"][0])
+                cli.ROOT = d
+                cli.cmd_score(cfg, rows, SimpleNamespace(
+                    readme="README.md", svg="lb.svg", json="lb.json", boot=20))
+                hist = (d / "benchmark" / "elo_history_tt.jsonl").read_text().splitlines()
+                self.assertEqual(len(hist), 1)
+                h = json.loads(hist[0])
+                self.assertAlmostEqual(sum(h["elo_live"].values()) / 2, 1500, places=3)
+                self.assertIn("Elo", (d / "README.md").read_text())
+            finally:
+                cli.CONFIG, cli.LEDGER, cli.ROOT, cli.REPLAYS = old
+
+
+class EloTest(unittest.TestCase):
+    @staticmethod
+    def _game(x, y, seed, px, py):
+        return [{"protocol": "v3", "team_a": x, "team_b": y, "seed": seed,
+                 "hands": 8, "piedras_a": px, "piedras_b": py, "status": "done"},
+                {"protocol": "v3", "team_a": y, "team_b": x, "seed": seed,
+                 "hands": 8, "piedras_a": 0, "piedras_b": 0, "status": "done"}]
+
+    def test_pairs_collapse_to_one_game_and_unpaired_drop(self):
+        from musbench.leaderboard import elo
+        ms = self._game("a", "b", 0, 50, 40) + [self._game("a", "b", 1, 9, 1)[0]]
+        gs = elo.pair_games(ms)
+        self.assertEqual(len(gs), 1)
+        self.assertEqual(gs[0]["score"], 1.0)
+
+    def test_stronger_model_rates_higher_and_anchor_is_pinned(self):
+        from musbench.leaderboard import elo
+        ms = []
+        for s in range(12):      # a beats h 9/12, h beats b 9/12
+            ms += self._game("a", "heuristic", s, 60 if s < 9 else 30, 45)
+            ms += self._game("heuristic", "b", s, 60 if s < 9 else 30, 45)
+        r = elo.fit(elo.pair_games(ms))
+        self.assertAlmostEqual(r["heuristic"], 1000.0)
+        self.assertGreater(r["a"], 1100)
+        self.assertLess(r["b"], 900)
+
+    def test_power_table_is_monotonic(self):
+        from musbench.leaderboard import elo
+        self.assertGreater(elo.games_needed(100), elo.games_needed(200))
+        self.assertLessEqual(elo.games_needed(elo.gap_resolvable(30)), 30)
+
+    def test_swiss_pairs_neighbours_and_avoids_repeats(self):
+        ratings = {"a": 1300, "b": 1250, "c": 1000, "d": 950}
+        self.assertEqual(cli.swiss_pairings(ratings, {}, list(ratings)),
+                         [("a", "b"), ("c", "d")])
+        played = {("a", "b"): {0, 1, 2}}
+        self.assertEqual(cli.swiss_pairings(ratings, played, list(ratings))[0],
+                         ("a", "c"))
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SwissFairnessTest(unittest.TestCase):
+    def test_bye_goes_to_the_model_with_most_games(self):
+        self.assertEqual(cli.choose_bye(["a", "b", "c"], {"a": 3, "b": 7, "c": 1}, 0), "b")
+
+    def test_probe_reports_missing_credentials_instead_of_raising(self):
+        import os
+        from unittest import mock
+        cfg = {"models": {"x": {"spec": "openrouter:some/model"}}}
+        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}):
+            ok, why = cli.probe(cfg, "x")
+        self.assertFalse(ok)
+        self.assertIn("OPENROUTER_API_KEY", why)

@@ -126,21 +126,77 @@ class MeteringTest(unittest.TestCase):
             self.assertEqual(a[0], "human")
             self.assertEqual(b[0], "human")
             self.assertEqual(len(set(a[1:])), 3)
-            self.assertTrue(set(a[1:]).issubset({"alpha", "beta", "gamma", "delta"}))
+            # bare pool ids are normalized to nan:<id>
+            expect = {"nan:alpha", "nan:beta", "nan:gamma", "nan:delta"}
+            self.assertTrue(set(a[1:]).issubset(expect))
             self.assertNotEqual(a[1:], b[1:])
         finally:
             os.environ.pop("MUS_MODEL_POOL", None)
             live_public._models_cache["ids"] = []
 
-    def test_list_nan_chat_models_filters_non_chat(self):
+    def test_list_chat_models_filters_non_chat_and_prefixes(self):
         live_public._models_cache["ids"] = []
         live_public._models_cache["at"] = 0.0
-        fake = ["glm5.3-flash", "whisper", "qwen3-embedding", "flux-2-klein",
-                "deepseek-v4-flash", "kokoro", "gemma4"]
-        with mock.patch.object(live_public, "_fetch_nan_model_ids",
-                               return_value=fake):
-            got = live_public.list_nan_chat_models(force=True)
-        self.assertEqual(got, ["glm5.3-flash", "deepseek-v4-flash", "gemma4"])
+
+        def fake_fetch(provider):
+            if provider == "nan":
+                return ["glm5.3-flash", "whisper", "qwen3-embedding",
+                        "flux-2-klein", "deepseek-v4-flash", "kokoro", "gemma4"]
+            if provider == "nvidia":
+                return [
+                    "moonshotai/kimi-k2.6",
+                    "mistralai/mistral-large",
+                    "nvidia/nemotron-4-340b-instruct",
+                    "google/gemma-4-31b-it",
+                    "meta/llama-3.1-8b-instruct",
+                    "nvidia/riva-translate-4b-instruct",
+                ]
+            if provider == "openrouter":
+                return ["meta-llama/llama-3.3-70b:free", "openai/gpt-4o"]
+            return []
+
+        with mock.patch.object(live_public, "USE_VERIFIED_LIVE_POOL", False):
+            with mock.patch.object(live_public, "ALLOW_NVIDIA_LIVE", True):
+                with mock.patch.object(live_public, "_fetch_provider_model_ids",
+                                       side_effect=fake_fetch):
+                    with mock.patch.object(live_public, "OPENROUTER_FREE_ONLY", True):
+                        with mock.patch(
+                                "musbench.agents.jev_seat.list_jev_models",
+                                return_value=["typesafe:jev-latest"]):
+                            with mock.patch(
+                                    "musbench.agents.anthropic_seat.list_anthropic_models",
+                                    return_value=["anthropic:claude-haiku-5-5"]):
+                                got = live_public.list_chat_models(force=True)
+        self.assertEqual(got, [
+            "nan:glm5.3-flash", "nan:deepseek-v4-flash", "nan:gemma4",
+            "nvidia:moonshotai/kimi-k2.6",
+            "nvidia:mistralai/mistral-large",
+            "nvidia:nvidia/nemotron-4-340b-instruct",
+            "typesafe:jev-latest",
+            "anthropic:claude-haiku-5-5",
+        ])
+        self.assertNotIn("nvidia:google/gemma-4-31b-it", got)
+        self.assertNotIn("nvidia:nvidia/riva-translate-4b-instruct", got)
+        self.assertNotIn("openrouter:meta-llama/llama-3.3-70b:free", got)
+
+    def test_verified_pool_excludes_nvidia_by_default(self):
+        with mock.patch.object(live_public, "USE_VERIFIED_LIVE_POOL", True):
+            with mock.patch.object(live_public, "ALLOW_NVIDIA_LIVE", False):
+                got = live_public.list_chat_models(force=True)
+        self.assertTrue(got)
+        self.assertTrue(all(not s.startswith("nvidia:") for s in got))
+
+    def test_list_chat_models_respects_mus_model_pool_specs(self):
+        os.environ["MUS_MODEL_POOL"] = (
+            "nan:a,nvidia:meta/llama,openrouter:x/y:free,bare")
+        try:
+            with mock.patch.object(live_public, "ALLOW_NVIDIA_LIVE", True):
+                got = live_public.list_chat_models(force=True)
+        finally:
+            os.environ.pop("MUS_MODEL_POOL", None)
+        self.assertEqual(got, [
+            "nan:a", "nvidia:meta/llama", "openrouter:x/y:free", "nan:bare",
+        ])
 
 
 class RegistryTest(unittest.TestCase):
@@ -165,21 +221,36 @@ class RegistryTest(unittest.TestCase):
         self.assertFalse(first_game_of_c.stopped,
                          "one visitor restarting stopped another's game")
 
-    def test_exhausted_budget_degrades_to_offline(self):
+    def test_exhausted_budget_refuses_table(self):
         reg, b = self._registry(daily=1)
         b.spend(); b.spend()                # push past the ceiling
         sess, note = reg.create("sid-x")
+        self.assertIsNone(sess)
         self.assertEqual(note, "budget")
-        self.assertFalse(sess.llm)
-        self.assertEqual(sess.table.specs[1:], ["heuristic"] * 3)
 
     def test_llm_slots_are_capped(self):
         reg, _ = self._registry(max_llm=2)
         self.assertTrue(reg.create("a")[0].llm)
         self.assertTrue(reg.create("b")[0].llm)
         sess, note = reg.create("c")
+        self.assertIsNone(sess)
         self.assertEqual(note, "busy")
-        self.assertFalse(sess.llm, "third concurrent game still used models")
+
+    def test_bad_models_are_skipped_by_roll(self):
+        live_public.clear_bad_models()
+        live_public.mark_bad_model("nan:alpha")
+        os.environ["MUS_MODEL_POOL"] = "alpha,beta,gamma"
+        try:
+            live_public._models_cache["ids"] = []
+            out = live_public.roll_lineup(
+                ["human", "x", "y", "z"], rng=__import__("random").Random(0))
+        finally:
+            os.environ.pop("MUS_MODEL_POOL", None)
+            live_public.clear_bad_models()
+            live_public._models_cache["ids"] = []
+        self.assertEqual(out[0], "human")
+        self.assertTrue(all(s.startswith("nan:") for s in out[1:]))
+        self.assertNotIn("nan:alpha", out)
 
     def test_full_table_refuses(self):
         reg, _ = self._registry(max_sessions=2)
@@ -219,6 +290,12 @@ class IPLimiterTest(unittest.TestCase):
         self.assertFalse(lim.allow("1.1.1.1"))
         self.assertTrue(lim.allow("2.2.2.2"))
 
+    def test_allowlist_skips_cap(self):
+        lim = live_public.IPLimiter(per_hour=1, allowlist={"9.9.9.9"})
+        self.assertTrue(all(lim.allow("9.9.9.9") for _ in range(20)))
+        self.assertTrue(lim.allow("8.8.8.8"))
+        self.assertFalse(lim.allow("8.8.8.8"))
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -250,29 +327,9 @@ class ReturningPlayerTest(unittest.TestCase):
 
 
 class OfflineFallbackTest(unittest.TestCase):
-    def test_session_reports_offline_when_factory_downgrades(self):
-        """No API key -> the table deals heuristic seats and says so.
-
-        The factory (in live_server) flips `llm_active` when the model seats
-        cannot be built. The session must report what was actually dealt,
-        otherwise the UI tells the visitor they are facing models when they
-        are not.
-        """
+    def test_session_refuses_when_factory_cannot_seat_llms(self):
+        """If models cannot be built, refuse the table — never fake LLM seats."""
         b = live_public.Budget(daily=100, path=tempfile.mktemp(suffix=".json"))
-
-        def downgrading_factory(llm, hands):
-            tbl = FakeTable(["human"] + ["heuristic"] * 3, hands)
-            tbl.llm_active = False          # as if StrictAgent construction failed
-            return tbl
-
-        reg = live_public.SessionRegistry(downgrading_factory, b)
-        sess, note = reg.create("sid")
-        self.assertFalse(sess.llm, "session claimed models it never dealt")
-        self.assertEqual(note, "offline")
-
-    def test_budget_note_survives_downgrade(self):
-        b = live_public.Budget(daily=1, path=tempfile.mktemp(suffix=".json"))
-        b.spend(); b.spend()
 
         def downgrading_factory(llm, hands):
             tbl = FakeTable(["human"] + ["heuristic"] * 3, hands)
@@ -280,5 +337,17 @@ class OfflineFallbackTest(unittest.TestCase):
             return tbl
 
         reg = live_public.SessionRegistry(downgrading_factory, b)
-        _, note = reg.create("sid")
-        self.assertEqual(note, "budget", "budget reason was overwritten")
+        sess, note = reg.create("sid")
+        self.assertIsNone(sess)
+        self.assertEqual(note, "offline")
+
+    def test_factory_raise_refuses_table(self):
+        b = live_public.Budget(daily=100, path=tempfile.mktemp(suffix=".json"))
+
+        def exploding_factory(llm, hands):
+            raise RuntimeError("no models")
+
+        reg = live_public.SessionRegistry(exploding_factory, b)
+        sess, note = reg.create("sid")
+        self.assertIsNone(sess)
+        self.assertEqual(note, "offline")

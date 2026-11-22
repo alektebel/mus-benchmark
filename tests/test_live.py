@@ -282,6 +282,45 @@ class TestTableFeedForUI(unittest.TestCase):
         self.assertTrue(env)
         self.assertTrue(all(e.get("action") for e in env))
 
+    def test_auto_mus_can_cut_as_bluff_on_weak_hand(self):
+        from musbench.mus.deck import Card
+        old = (live_server.LIVE_MUS_BLUFF, live_server.LIVE_MUS_CUT,
+               live_server.AUTO_MUS)
+        live_server.AUTO_MUS = True
+        live_server.LIVE_MUS_BLUFF = 1.0
+        live_server.LIVE_MUS_CUT = 0.99  # force heuristic to prefer mus
+        try:
+            g = LiveGame(["human", "heuristic", "heuristic", "heuristic"],
+                         hands=1, seed=11)
+            g.engine.deal()
+            g.engine.phase = Phase.MUS_REQUEST
+            g.engine.current_seat = 1
+            # Weak junk: no pares, no juego, low grande.
+            g.engine.hands[1] = [
+                Card("cuatro", "oros"), Card("cinco", "copas"),
+                Card("as", "espadas"), Card("dos", "bastos"),
+            ]
+            agent = g.agents[1]
+            self.assertTrue(g._try_auto_mus(agent, list(g.engine.hands[1])))
+            self.assertEqual(g.stats.get("mus_bluff_cuts"), 1)
+            self.assertTrue(any(e["kind"] == "mus" and e.get("action") == "no"
+                                and e["seat"] == 1 for e in g.events))
+        finally:
+            (live_server.LIVE_MUS_BLUFF, live_server.LIVE_MUS_CUT,
+             live_server.AUTO_MUS) = old
+
+    def test_mus_snap_prompt_is_short_and_allows_farol(self):
+        from musbench.agents.prompt_builder import build_mus_snap_prompt
+        g = LiveGame(["human", "heuristic", "heuristic", "heuristic"],
+                     hands=1, seed=2)
+        g.engine.deal()
+        agent = g.agents[1]
+        p = build_mus_snap_prompt(agent, g.engine, ["mus", "no"])
+        self.assertLess(len(p), 1200)
+        self.assertIn("farol", p.lower())
+        self.assertNotIn("signal_policy", p)
+        self.assertNotIn("SENAS", p)
+
     def test_hand_pause_is_off_by_default_and_interruptible(self):
         self.assertEqual(live_server.HAND_PAUSE, 0.0)
         old = live_server.HAND_PAUSE

@@ -9,14 +9,24 @@ Key rules implemented:
   - Juego 31 > 32 > 40 > 39 > ... > 33; nobody has juego -> Punto (best <= 30, 1 piedra).
   - Mus: one "no hay mus" blocks ALL discards; discards may repeat ("cuantas veces
     lo deseen", capped here at MUS_ROUNDS_MAX with discard recycling).
+  - Perete (house): 4+5+6+7 of any suits. The holder may shout "perete", dump
+    the four cards toward the seat on their left, and draw a fresh hand
+    (still in MUS_REQUEST).
   - Declarations: Pares and Juego lances open with a truthful "tengo"/"no-tengo"
     round; envites only start if EACH team has a declarer (Juego: if nobody has
     juego, punto envites are open; if one team only, it takes the jugada).
   - Named-bet envite: envido(2) -> y-yo(+2) -> reenvido(x2) -> ordago(all).
     "quiero" locks the stake (jugada compared at lance end).
-    "no-quiero" pays the holder the PREVIOUS stake (or 1 deje if none) AND the
+    "no-quiero" folds only that seat; when every rival seat has folded, the
+    holder takes the PREVIOUS stake (or 1 deje if none) AND the
     jugada value unconditionally -- declining concedes the jugada (no comparison).
-  - Ordago accepted = whole game (40 piedras) on the jugadas compare.
+  - Ordago = all-in for the whole vaca. An accepted lance órdago is decided
+    by that lance alone; a pre-draw órdago compares the whole hand.
+  - Ties in any lance go to the side of the tied seat nearest the mano.
+    Either rival may "quiero" (accept). "no-quiero" folds only that seat;
+    both opposing seats must retract for the ordago to fall. Declined lance
+    ordago: caller takes previous stake + jugada, then next lance
+    (Grande → Chica → Pares → Juego).
   - Vaca = 40 piedras; counters reset after each vaca; mano rotates every hand.
 """
 from __future__ import annotations
@@ -58,6 +68,13 @@ ENVITE_MAX = int(os.environ.get("ENVITE_MAX", "40"))
 
 LANCE_NAMES = ["Grande", "Chica", "Pares", "Juego"]
 DECLARATION_LANCES = {2, 3}   # Pares and Juego open with tengo/no-tengo
+# Tío Perete: the worst possible hand — one of each 4, 5, 6, 7 (any suits).
+PERETE_RANKS = frozenset({"cuatro", "cinco", "seis", "siete"})
+
+
+def is_perete(hand) -> bool:
+    return (len(hand) == 4
+            and {getattr(c, "rank", None) for c in hand} == PERETE_RANKS)
 
 
 class Phase(Enum):
@@ -139,6 +156,7 @@ class MusEngine:
         self.ordago_caller: int | None = None
         self.ordago_accepted: bool | None = None
         self.ordago_context: str | None = None
+        self.ordago_declined_by: set[int] = set()
         self.vaca_callback = None
 
     def deal(self):
@@ -163,6 +181,7 @@ class MusEngine:
         self.ordago_caller = None
         self.ordago_accepted = None
         self.ordago_context = None
+        self.ordago_declined_by = set()
         deck = make_deck()
         self.deal_rng.shuffle(deck)
         self.hands = {s: deck[s * 4:(s + 1) * 4] for s in range(4)}
@@ -213,13 +232,18 @@ class MusEngine:
         return max(players, key=value_fn)
 
     def _lance_winner(self, name, hands=None) -> int | None:
+        """Team that wins `name` under `hands`. Ties go to the side of the
+        tied seat nearest the mano (mano first, then counter-clockwise), as
+        at a real table. None only when nobody holds pares."""
         hands = hands or self.hands
-        va = self._lance_value(name, self._team_best(hands, 0, lambda h: self._lance_value(name, h)))
-        vb = self._lance_value(name, self._team_best(hands, 1, lambda h: self._lance_value(name, h)))
-        if va > vb:
-            return 0
-        if vb > va:
-            return 1
+        values = {s: self._lance_value(name, hands[s]) for s in range(4)}
+        best = max(values.values())
+        if name == "Pares" and best[0] == 0:
+            return None
+        for k in range(4):
+            seat = (self.mano + k) % 4
+            if values[seat] == best:
+                return TEAM_OF[seat]
         return None
 
     def compare_jugadas(self, hands=None):
@@ -237,9 +261,12 @@ class MusEngine:
         if self.phase == Phase.MUS_REQUEST:
             if seat != self.current_seat:
                 return []
-            return (["ordago", "mus", "no"]
+            acts = (["ordago", "mus", "no"]
                     if seat == self.mano and not self._mus_ordago_declined
                     else ["mus", "no"])
+            if is_perete(self.hands.get(seat) or []):
+                acts = ["perete"] + acts
+            return acts
         if self.phase == Phase.MUS_DRAW:
             if seat != self.current_seat or seat not in self.mus_want:
                 return []
@@ -271,7 +298,12 @@ class MusEngine:
                     acts.insert(3, "reenvido")
             return acts
         if self.phase == Phase.ORDAGO_RESPONSE:
-            if seat != self.current_seat:
+            if seat != self.current_seat or self.ordago_caller is None:
+                return []
+            # Only the opposing team answers an órdago.
+            if TEAM_OF[seat] == TEAM_OF[self.ordago_caller]:
+                return []
+            if seat in self.ordago_declined_by:
                 return []
             return ["quiero", "no-quiero"]
         return []
@@ -296,16 +328,29 @@ class MusEngine:
 
     # ---- MUS ----
     def _apply_mus_request(self, seat, name):
-        if name == "ordago":
+        if name == "perete":
+            self._apply_perete(seat)
+        elif name == "ordago":
             self.ordago_caller = seat
             self.ordago_context = "mus_request"
+            self.ordago_declined_by = set()
             self.phase = Phase.ORDAGO_RESPONSE
-            self.current_seat = (seat + 1) % 4
+            self.current_seat = self._next_ordago_responder(seat)
         elif name == "mus":
             self.mus_want.add(seat)
             self._advance_request()
         elif name == "no":
             self._start_lances()          # "No hay mus": nobody discards
+
+    def _apply_perete(self, seat):
+        """Dump 4-5-6-7, draw four fresh cards; seat keeps the mus turn."""
+        hand = list(self.hands[seat])
+        if not is_perete(hand):
+            raise IllegalAction("perete requires cuatro+cinco+seis+siete")
+        self._redraw(seat, hand)
+        self.mus_want.discard(seat)
+        # Same seat decides again with the new hand (mus / no / ordago / …).
+        self.current_seat = seat
 
     def _advance_request(self):
         nxt = (self.current_seat + 1) % 4
@@ -477,12 +522,22 @@ class MusEngine:
             self.jugadas.append(JugadaResult(LANCE_NAMES[self.lance_index], None))
             self._advance_lance()
         elif name == "no-quiero":
-            self._settle_decline()
+            # Only this seat folds. Either rival may still quiero / raise; the
+            # envite declines only when no opposing seat remains unfolded.
+            e.folded.add(seat)
+            holder_team = TEAM_OF[e.holder]
+            opp_left = [s for s in range(4)
+                        if TEAM_OF[s] != holder_team and s not in e.folded]
+            if not opp_left:
+                self._settle_decline()
+            else:
+                self.current_seat = self._next_unfolded(seat)
         elif name == "ordago":
             self.ordago_caller = seat
             self.ordago_context = "envite"
+            self.ordago_declined_by = set()
             self.phase = Phase.ORDAGO_RESPONSE
-            self.current_seat = (seat + 1) % 4
+            self.current_seat = self._next_ordago_responder(seat)
 
     def _advance_envite_seat(self, seat):
         nxt = self._next_unfolded(seat)
@@ -609,16 +664,53 @@ class MusEngine:
             self.hand_winner = None
 
     # ---- ORDAGO ----
+    def _next_ordago_responder(self, seat: int) -> int:
+        """Next opposing seat that has not yet retracted the órdago."""
+        caller_team = TEAM_OF[self.ordago_caller]
+        nxt = (seat + 1) % 4
+        for _ in range(4):
+            if (TEAM_OF[nxt] != caller_team
+                    and nxt not in self.ordago_declined_by):
+                return nxt
+            nxt = (nxt + 1) % 4
+        return nxt
+
     def _apply_ordago_response(self, seat, name):
-        self.ordago_accepted = (name == "quiero")
         if name == "quiero":
+            self.ordago_accepted = True
             self._resolve_ordago()
-        else:
+            self.ordago_caller = None
+            self.ordago_accepted = None
+            self.ordago_declined_by = set()
+            return
+        # no-quiero: only this rival retracts. The other may still accept.
+        self.ordago_declined_by.add(seat)
+        caller_team = TEAM_OF[self.ordago_caller]
+        opp_left = [s for s in range(4)
+                    if TEAM_OF[s] != caller_team
+                    and s not in self.ordago_declined_by]
+        if not opp_left:
+            self.ordago_accepted = False
             self._resolve_ordago_declined()
-        self.ordago_caller = None
-        self.ordago_accepted = None
+            self.ordago_caller = None
+            self.ordago_accepted = None
+            self.ordago_declined_by = set()
+        else:
+            self.current_seat = self._next_ordago_responder(seat)
 
     def _resolve_ordago(self):
+        if self.ordago_context == "envite":
+            # An accepted lance órdago is decided by THAT lance alone: its
+            # winner takes the vaca, whatever the other lances would say.
+            name = LANCE_NAMES[self.lance_index]
+            w = self._lance_winner(name)
+            self.jugadas.append(JugadaResult(name, w))
+            self._add_points(w, VACA_TARGET)
+            self._apply_vaca()
+            self.phase = Phase.DONE
+            self._set_hand_winner()
+            return
+        # Pre-draw órdago (house rule): the whole hand is compared.
         self._settle_locked_envites()
         self.jugadas = self.compare_jugadas()
         va, vb = self.vacas_from_jugadas(self.jugadas)
@@ -643,11 +735,10 @@ class MusEngine:
             self.current_seat = caller
             self._mus_ordago_declined = True
             return
-        holder_team = TEAM_OF[self.envite.holder] if self.envite.holder is not None \
-            else TEAM_OF[caller]
         name = LANCE_NAMES[self.lance_index]
         stake = self.envite.previous if self.envite.previous > 0 else 1
-        # the ordago caller becomes the holder of the pending stake
+        # Declined lance órdago: caller takes previous stake + jugada, then
+        # play continues on the next lance (Grande → Chica → Pares → Juego).
         self._add_points(TEAM_OF[caller], stake)
         self._award_lance(name, TEAM_OF[caller])
         self.jugadas.append(JugadaResult(name, TEAM_OF[caller]))

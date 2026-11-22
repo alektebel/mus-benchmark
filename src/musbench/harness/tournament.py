@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -34,10 +35,15 @@ DEFAULT_PAIRINGS = [
 ]
 
 
+def _safe(spec: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", spec)
+
+
 def run_job(pairing: tuple[str, str], hands: int, seed: int, outdir: Path,
-            job_timeout: float) -> dict:
+            job_timeout: float,
+            module: str = "musbench.harness.kernel_match") -> dict:
     a, b = pairing
-    name = f"{a}__vs__{b}__seed{seed}"
+    name = f"{_safe(a)}__vs__{_safe(b)}__seed{seed}"
     out = outdir / f"{name}.json"
     log = outdir / f"{name}.log"
     env = dict(os.environ,
@@ -52,7 +58,7 @@ def run_job(pairing: tuple[str, str], hands: int, seed: int, outdir: Path,
                # marks silent finishes as degraded if the abort does not fire.
                MAX_FALLBACK_RATE=os.environ.get("MAX_FALLBACK_RATE", "0.20"),
                FALLBACK_MIN_TURNS=os.environ.get("FALLBACK_MIN_TURNS", "12"))
-    cmd = [sys.executable, "-u", "-m", "musbench.harness.kernel_match",
+    cmd = [sys.executable, "-u", "-m", module,
            "--teams", a, b, "--hands", str(hands), "--seed", str(seed),
            "--out", str(out), "--verbose"]
     t0 = time.time()
@@ -72,7 +78,10 @@ def run_job(pairing: tuple[str, str], hands: int, seed: int, outdir: Path,
     # with almost no real LLM calls — mark them degraded so they never enter
     # the publishable leaderboard (see bench_results.is_publishable_match).
     m = match_metrics(r)
-    has_llm = any(a.get("is_llm") for a in r.get("agents", []))
+    # the menu harness enforces its own invalid-answer gate and makes far
+    # fewer calls per match, so the kernel's call-count floor does not apply
+    has_llm = (any(a.get("is_llm") for a in r.get("agents", []))
+               and not r.get("protocol"))
     if status in ("done", "finished") and has_llm and not is_publishable_match(
             m["llm_calls"], m["fallbacks"], status):
         status = "degraded"

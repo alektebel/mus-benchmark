@@ -21,13 +21,14 @@ SVG_NS = "http://www.w3.org/2000/svg"
 
 # (pattern, provider, provider_icon, model_icon) -- first match wins
 FAMILIES = [
+    (r"^cursor-cli:(composer|auto)", "Cursor", "cursor", "cursor"),
     (r"gemma", "Google", "google-color", "gemma-color"),
     (r"gemini", "Google", "google-color", "gemini-color"),
     (r"qwen", "Alibaba Cloud", "alibabacloud-color", "qwen-color"),
     (r"glm|chatglm|zhipu", "Zhipu AI", "zhipu-color", "chatglm-color"),
     (r"deepseek", "DeepSeek", "deepseek-color", "deepseek-color"),
     (r"claude|anthropic", "Anthropic", "anthropic", "claude-color"),
-    (r"gpt|openai|\bo[1-9]", "OpenAI", "openai", "openai"),
+    (r"gpt|codex|openai|\bo[1-9]", "OpenAI", "openai", "openai"),
     (r"llama|meta", "Meta", "meta-color", "meta-color"),
     (r"mistral|mixtral|codestral", "Mistral AI", "mistral-color", "mistral-color"),
     (r"kimi|moonshot", "Moonshot AI", "moonshot", "kimi-color"),

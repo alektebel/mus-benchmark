@@ -185,6 +185,69 @@ def _delivered_block(delivered: list, seat: int) -> str:
     return "\n".join(lines), 0
 
 
+def build_mus_snap_prompt(agent: StrictAgent, engine: MusEngine,
+                          legal: list[str], error: str | None = None) -> str:
+    """Ultra-short MUS_REQUEST prompt — model decides, but not a novel.
+
+    Full `build_prompt` dumps señas + policy schema (~4–6k chars) and models
+    burn the turn thinking. Mus/no only needs hand facts + the farol option.
+    """
+    hand = engine.hands[agent.seat]
+    total = engine.hand_points(hand, engine.card_points)
+    pares = engine._pares_value(hand)[0]
+    has_juego = total in engine.juego_totals
+    lines = [
+        f"You are {agent.name}, TEAM {agent.team}, seat {agent.seat}.",
+        "Phase: MUS_REQUEST. Decide in ONE shot — do not overthink.",
+        "",
+    ]
+    lines.extend(_score_block(engine, agent.team))
+    lines.append(f"YOUR HAND: {_cards_str(hand)} (punto={total}; "
+                 f"pares={'yes' if pares else 'no'}; "
+                 f"juego={'yes' if has_juego else 'no'}).")
+    lines.append(
+        "Rules: \"mus\" = want discards (only if EVERYONE says mus). "
+        "\"no\" = cut mus for the whole table — play these cards. "
+        "You MAY cut as a bluff (farol) with a weak hand so rivals cannot "
+        "improve. Prefer mus when the hand is junk; cut when you have "
+        "something worth keeping OR when bluffing. "
+        + ('Mano may "ordago". ' if "ordago" in (legal or []) else "")
+        + ('"perete" if you hold 4+5+6+7. ' if "perete" in (legal or []) else "")
+    )
+    lines.append("Legal actions: " + ", ".join(legal))
+    if error:
+        lines.append(f"REJECTED last time: {error}. Return a legal action.")
+    lines.append(
+        'Answer ONLY JSON (thought ≤12 words, empty message): '
+        '{"action":"<legal>","thought":"<why>","message":""}')
+    return "\n".join(lines)
+
+
+def build_preplan_prompt(agent: StrictAgent, engine: MusEngine) -> str:
+    """Short idle-time prompt: draft a lance-by-lance plan before the turn.
+
+    Used while other seats act (or the human thinks). The plan is private and
+    is injected into the next real decision so that turn can stay fast.
+    """
+    lines = [
+        f"You are {agent.name}, TEAM {agent.team}, seat {agent.seat}.",
+        "Idle planning only -- you are NOT acting yet. Cards are final.",
+        "",
+    ]
+    lines.extend(_score_block(engine, agent.team))
+    lines.append("")
+    lines.extend(_hand_facts(engine, agent.seat))
+    lines.append("")
+    lines.append(
+        "Write a compact private plan for THIS hand across the four lances "
+        "(Grande → Chica → Pares → Juego). Say where you will envido, where "
+        "you will paso, and where you will look (quiero) if they bet. "
+        "Example tone: \"Grande envido if they paso; Chica agresivo; Pares "
+        "paso and look if they go; Juego según 31.\" Keep it under 60 words.")
+    lines.append('Answer with ONLY JSON: {"plan": "<your strategy>"}')
+    return "\n".join(lines)
+
+
 def build_prompt(agent: StrictAgent, engine: MusEngine, ch: Channels,
                  legal: list[str], error: str | None = None,
                  delivered: list | None = None, history=None,
@@ -201,6 +264,14 @@ def build_prompt(agent: StrictAgent, engine: MusEngine, ch: Channels,
     lines.append("")
     lines.extend(_hand_facts(engine, agent.seat))
     lines.append("")
+    preplan = getattr(agent, "preplan", None)
+    if preplan:
+        lines.append("YOUR PRE-TURN PLAN (drafted while waiting -- follow it "
+                     "unless the table forced a change):")
+        lines.append(f"  {preplan}")
+        lines.append("Decide FAST from that plan: one short thought, then the "
+                     "JSON action. Do not rewrite the whole strategy.")
+        lines.append("")
     if notes is not None:
         block = notes.render(agent.seat)
         if block:
@@ -251,7 +322,7 @@ def build_prompt(agent: StrictAgent, engine: MusEngine, ch: Channels,
                      "pending stake; quiero=accept (cards compared at lance "
                      "end); no-quiero=decline (the holder takes the previous "
                      "stake -- or 1 deje -- AND the jugada value; you concede "
-                     "the jugada); ordago=all-in for the whole game.")
+                     "the jugada); ordago=all-in for the whole vaca on this hand.")
     if engine.phase == Phase.DECLARE:
         lance = LANCE_NAMES[engine.lance_index]
         lines.append(f"DECLARATION ROUND for {lance}: each seat truthfully says "
@@ -259,13 +330,16 @@ def build_prompt(agent: StrictAgent, engine: MusEngine, ch: Channels,
                      f"Envites only start if EACH team has a declarer.")
     if engine.phase == Phase.ORDAGO_RESPONSE:
         stake = engine.envite.previous or 1
+        declined = sorted(engine.ordago_declined_by) or "none"
         lines.append(f"ORDAGO from seat {engine.ordago_caller} "
                      f"(team {TEAM_OF[engine.ordago_caller]}), current stake={stake}. "
-                     f"'quiero' = the WHOLE game is decided by comparing hands. "
-                     f"'no-quiero' = the caller's team scores the previous stake "
-                     f"({stake}), plus the jugada value for a lance ordago, "
-                     f"and play continues. Declining does NOT hand "
-                     f"them the game.")
+                     f"Rivals who already retracted: {declined}. "
+                     f"'quiero' = the WHOLE vaca is decided by comparing hands. "
+                     f"'no-quiero' retracts ONLY your seat; the other rival may "
+                     f"still accept. The órdago falls only when BOTH opposing "
+                     f"seats retract: then the caller takes previous stake "
+                     f"({stake}) plus the jugada, and play continues on the next "
+                     f"lance (Grande → Chica → Pares → Juego).")
 
     lines.append("Legal action names: " + ", ".join(legal))
     if error:
@@ -275,7 +349,9 @@ def build_prompt(agent: StrictAgent, engine: MusEngine, ch: Channels,
     if engine.phase == Phase.MUS_REQUEST:
         lines.append('  - "mus": want to replace cards (only happens if EVERYONE '
                      'says mus). "no": denies mus -> NOBODY discards, the hand is '
-                     'played as dealt. The mano (first seat) may "ordago".')
+                     'played as dealt. The mano (first seat) may "ordago". '
+                     'If legal includes "perete" (you hold 4+5+6+7), take it: '
+                     'dump the hand and draw four new cards.')
     elif engine.phase == Phase.MUS_DRAW:
         lines.append('  - action "discard" with "cards": names of cards from '
                      'YOUR HAND, count 1-4.')
@@ -288,9 +364,11 @@ def build_prompt(agent: StrictAgent, engine: MusEngine, ch: Channels,
                      'comparisons); as and dos are DIFFERENT ranks, so as+dos '
                      'is not a pair. Pares need two equal cards (rey=tres).')
     elif engine.phase == Phase.ORDAGO_RESPONSE:
-        lines.append('  - "quiero": accept -> whole game decided by the hand '
-                     'comparison. "no-quiero": decline -> the caller takes the '
-                     'previous stake plus the jugada value, and play continues.')
+        lines.append('  - "quiero": accept -> whole vaca decided by the hand '
+                     'comparison. "no-quiero": only YOU retract; both opposing '
+                     'seats must retract for the órdago to fall. Then the caller '
+                     'takes previous stake + jugada and play continues on the '
+                     'next lance.')
     if kernel_mode:
         lines.append(f"SENAS (reglamentarias): fixed gestures with fixed meanings, "
                      "addressed to YOUR PARTNER only, made at the table during "

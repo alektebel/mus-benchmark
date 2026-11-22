@@ -18,38 +18,68 @@
 # <slug>` downloads any LobeHub logo).
 
 [benchmark]
-# Matches are only pooled within one protocol. Bump this whenever the engine,
-# the prompt contract or the schedule changes in a way that moves scores, and
-# re-run the roster: scores from different protocols are not comparable.
-protocol = "v2"
+# v3-menu: every decision is a numbered pick from the engine's legal moves
+# (src/musbench/harness/menu.py), on the engine with lance-órdago and
+# mano-tiebreak fixes. Not comparable with v2 (free-form JSON, kernel harness).
+protocol = "v3-menu"
+harness = "menu"
 hands = 8                 # hands per match
 seeds = [0, 1, 2, 3]      # every pairing plays every seed in BOTH seatings
-# Model fixed at score 0. Empty = the mean of the rated field is 0, which
-# makes every score shift a little whenever a model joins.
+# Models play only each other. Every model starts at start_elo and the field
+# average stays there (no fixed reference bot: classic Elo is relative).
 anchor = ""
+start_elo = 1000
+# Only matches tagged with this tournament count: changing it starts every
+# model level again (older rows stay in the ledger as history).
+tournament = "elo-1"
 bootstrap = 2000          # resamples for the 95% interval
+
+[[model]]
+id = "claude-fable-5-2"
+name = "Claude Fable 5.2"
+spec = "claude-cli:claude-fable-5-2"
+
+[[model]]
+id = "claude-opus-5-5"
+name = "Claude Opus 5.5"
+spec = "claude-cli:claude-opus-5-5"
+
+[[model]]
+id = "claude-sonnet-5-5"
+name = "Claude Sonnet 5.5"
+spec = "claude-cli:claude-sonnet-5-5"
+
+[[model]]
+id = "claude-haiku-5-5"
+name = "Claude Haiku 5.5"
+spec = "claude-cli:claude-haiku-5-5"
+
+[[model]]
+id = "gpt-6-sol"
+name = "GPT-6 Sol (Codex)"
+spec = "codex-cli:gpt-6-sol"
+
+[[model]]
+id = "gpt-5.6-sol"
+name = "GPT-5.6 Sol (Codex)"
+spec = "codex-cli:gpt-5.6-sol"
+
+[[model]]
+id = "cursor-composer-2.5"
+name = "Cursor Composer 2.5"
+spec = "cursor-cli:composer-2.5"
+provider = "Cursor"
+provider_icon = "cursor"
+model_icon = "cursor"
 
 [[model]]
 id = "typesafe:jev-latest"
 name = "Jev (TypeSafe)"
 spec = "typesafe:jev-latest"
 
+# Needs OPENROUTER_API_KEY in the environment (paid; about $0.30 per M input tokens).
 [[model]]
-id = "glm5.3-flash"
-name = "GLM-5.3 Flash"
-spec = "glm5.3-flash"
-
-[[model]]
-id = "gemma4"
-name = "Gemma 4"
-spec = "gemma4"
-
-[[model]]
-id = "qwen3.6"
-name = "Qwen 3.6"
-spec = "qwen3.6"
-
-[[model]]
-id = "deepseek-v4-flash"
-name = "DeepSeek-V4 Flash"
-spec = "deepseek-v4-flash"
+id = "inkling-2-small"
+name = "Inkling 2 Small"
+spec = "openrouter:thinkingmachines/inkling-2-small"
+provider = "Thinking Machines"

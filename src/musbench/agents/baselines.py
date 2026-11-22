@@ -91,6 +91,8 @@ class RandomPolicy:
                    if lance == "Pares"
                    else _juego_total(engine, engine.hands[seat]) in JUEGO_TOTALS)
             return {"action": "tengo" if has else "no-tengo"}
+        if "perete" in legal:
+            return {"action": "perete"}
         name = self.rng.choice(legal)
         a = {"action": name}
         if name == "discard":
@@ -112,6 +114,8 @@ class HeuristicPolicy:
         hand = engine.hands[seat]
         team = TEAM_OF[seat]
         if engine.phase == Phase.MUS_REQUEST:
+            if "perete" in legal:
+                return {"action": "perete"}
             q = _hand_quality(engine, hand)
             if seat == engine.mano and "ordago" in legal and q >= self.ORDAGO_CALL:
                 return {"action": "ordago"}

@@ -23,6 +23,7 @@ from musbench.live.apifail import (FatalAPIError, LLMCallFailure, RetryableAPIEr
 PROVIDERS = {
     "nan": ("https://api.nan.builders/v1", "NAN_API_KEY"),
     "nvidia": ("https://integrate.api.nvidia.com/v1", "NVIDIA_KEY"),
+    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
 }
 DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "nan")
 # Per-thought token ceiling. The model must reason briefly and emit only the
@@ -71,10 +72,15 @@ class SeatBase:
         self.rejections = 0          # illegal actions / false declarations
         self.redactions = 0          # chat messages that leaked card info
         self.verbose = False
+        # Live-table preplan: strategy drafted while waiting for other seats.
+        self.preplan: str | None = None
+        self.preplan_key = None
+        self.fast_turn = False       # smaller token budget when a plan is ready
+        self.snap_turn = False       # mus/no: tiny prompt + tiny budget
 
 
 class StrictAgent(SeatBase):
-    """A seat backed by an OpenAI-compatible API (nan / nvidia)."""
+    """A seat backed by an OpenAI-compatible API (nan / nvidia / openrouter)."""
 
     is_llm = True
 
@@ -86,7 +92,12 @@ class StrictAgent(SeatBase):
         self.name, self.model, self.seat, self.team = name, model, seat, team
         self.provider = provider
         base, key_env = PROVIDERS[provider]
-        self.base = os.environ.get("NAN_API_BASE", base) if provider == "nan" else base
+        if provider == "nan":
+            self.base = os.environ.get("NAN_API_BASE", base)
+        elif provider == "openrouter":
+            self.base = os.environ.get("OPENROUTER_API_BASE", base)
+        else:
+            self.base = os.environ.get("NVIDIA_API_BASE", base)
         self.deadline = None
         self.api_key = os.environ.get(key_env, "")
         if not self.api_key:
@@ -106,13 +117,56 @@ class StrictAgent(SeatBase):
             "temperature": TEMPERATURE,
             "max_tokens": max_tokens,
         }
-        if REASONING_MODE != "omit":
+        # OpenRouter / some NVIDIA routes reject unknown reasoning_effort.
+        if REASONING_MODE != "omit" and self.provider == "nan":
             p["reasoning_effort"] = REASONING_MODE
         return p
 
+    def _headers(self) -> dict:
+        h = {"Authorization": f"Bearer {self.api_key}",
+             "Content-Type": "application/json"}
+        if self.provider == "openrouter":
+            # OpenRouter ranks apps that identify themselves; optional but polite.
+            referer = os.environ.get("OPENROUTER_HTTP_REFERER",
+                                     "https://diegoatencia.dev/mus/")
+            title = os.environ.get("OPENROUTER_APP_TITLE", "mus-benchmark")
+            if referer:
+                h["HTTP-Referer"] = referer
+            if title:
+                h["X-Title"] = title
+        return h
+
     # ---------------- one decision ----------------
+    def _initial_max_tokens(self) -> int:
+        """Floor for models that burn max_tokens on hidden reasoning.
+
+        deepseek-v4-flash on NAN ignores a tight budget: with THINK_BUDGET=600
+        and a mus-sized prompt it routinely returns finish=length, reasoning=600,
+        content="" — then we retry for tens of seconds and look hung. Give it
+        enough headroom on the first call so the JSON actually fits.
+
+        When a live-table preplan is already in hand, prefer a smaller budget
+        so the turn is an execution step, not a fresh strategy essay.
+        """
+        if self.snap_turn:
+            floor = int(os.environ.get("MUS_SNAP_MAX_TOKENS", "320"))
+        elif self.fast_turn:
+            floor = int(os.environ.get("FAST_TURN_MAX_TOKENS", "500"))
+        else:
+            floor = THINK_BUDGET
+        model = (self.model or "").lower()
+        if "deepseek" in model and self.snap_turn:
+            # Short mus prompt + modest headroom; avoid 1800-token essays.
+            floor = max(floor, int(os.environ.get("DEEPSEEK_SNAP_MAX_TOKENS", "480")))
+        elif "deepseek" in model and not self.fast_turn:
+            floor = max(floor, int(os.environ.get("DEEPSEEK_MAX_TOKENS", "1800")))
+        elif "deepseek" in model and self.fast_turn:
+            # Still leave room for hidden reasoning, but not a full rethink.
+            floor = max(floor, int(os.environ.get("DEEPSEEK_FAST_MAX_TOKENS", "900")))
+        return min(floor, MAX_RESP_CAP)
+
     def decide(self, prompt: str) -> dict:
-        max_tokens = min(THINK_BUDGET, MAX_RESP_CAP)
+        max_tokens = self._initial_max_tokens()
         last_err: Exception | None = None
         for resp_attempt in range(RESP_RETRIES):
             def _call():
@@ -124,8 +178,7 @@ class StrictAgent(SeatBase):
                     timeout = min(timeout, remaining)
                 return requests.post(
                     f"{self.base}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.api_key}",
-                             "Content-Type": "application/json"},
+                    headers=self._headers(),
                     json=self._payload(prompt, max_tokens),
                     timeout=timeout)
             try:
@@ -156,18 +209,21 @@ class StrictAgent(SeatBase):
             u = d.get("usage") or {}
             self.tokens_in += u.get("prompt_tokens") or 0
             self.tokens_out += u.get("completion_tokens") or 0
-            self.reasoning += (u.get("completion_tokens_details") or {}).get(
+            reason_tok = (u.get("completion_tokens_details") or {}).get(
                 "reasoning_tokens") or 0
+            self.reasoning += reason_tok
             content = msg.get("content") or ""
             finish = choice.get("finish_reason")
             if self.verbose:
                 print(f"    >>> {self.name} (seat {self.seat}, {self.model}) "
                       f"finish={finish} raw: {content[:400]!r}")
             if finish == "length" or (not content.strip()):
-                # truncated (reasoning ate the budget) -> escalate, else re-sample
+                # Reasoning ate the budget (common on deepseek): jump to the
+                # cap instead of doubling slowly across several hung calls.
                 if max_tokens < MAX_RESP_CAP:
-                    max_tokens = min(max_tokens * 2, MAX_RESP_CAP)
-                last_err = LLMCallFailure(f"truncated (finish={finish})")
+                    max_tokens = MAX_RESP_CAP
+                last_err = LLMCallFailure(
+                    f"truncated (finish={finish}, reasoning={reason_tok})")
                 continue   # fresh sample: reasoning length is stochastic
             try:
                 data = json.loads(_extract_json(content))
@@ -213,8 +269,34 @@ def _make_agent(spec, seat: int, team: int, seed: int = 0):
         tag = _BASELINE_TAG.get(label, "EA")
         return BaselineSeat(f"{tag}{seat}", label, seat, team, seed,
                             policy=policy)
+    # TypeSafe Jev / Anthropic Claude are not OpenAI chat/completions.
+    if isinstance(spec, str):
+        s = spec.strip()
+        backend = s.split(":", 1)[0]
+        if backend in ("claude-cli", "codex-cli", "cursor-cli") and ":" in s:
+            from musbench.agents.cli_seat import CliAgent
+            return CliAgent(f"{'A' if team == 0 else 'B'}{seat}", backend,
+                            s.split(":", 1)[1], seat, team)
+        if s in ("jev", "jev-latest", "jev-preview") or s.startswith("typesafe:"):
+            from musbench.agents.jev_seat import JevAgent, DEFAULT_MODEL
+            model = s.split(":", 1)[-1] if ":" in s else s
+            if model == "jev":
+                model = DEFAULT_MODEL
+            return JevAgent(f"{'A' if team == 0 else 'B'}{seat}", model, seat, team)
+        if s.startswith("anthropic:") or s.startswith("claude"):
+            from musbench.agents.anthropic_seat import AnthropicAgent
+            model = s.split(":", 1)[-1] if ":" in s else s
+            return AnthropicAgent(f"{'A' if team == 0 else 'B'}{seat}", model,
+                                  seat, team)
     if isinstance(spec, (tuple, list)) and len(spec) == 2:
         provider, model = str(spec[0]), str(spec[1])
+        if provider == "typesafe":
+            from musbench.agents.jev_seat import JevAgent
+            return JevAgent(f"{'A' if team == 0 else 'B'}{seat}", model, seat, team)
+        if provider == "anthropic":
+            from musbench.agents.anthropic_seat import AnthropicAgent
+            return AnthropicAgent(f"{'A' if team == 0 else 'B'}{seat}", model,
+                                  seat, team)
     elif isinstance(spec, str) and ":" in spec:
         provider, model = spec.split(":", 1)
     else:
@@ -230,6 +312,8 @@ def _default_legal(engine: MusEngine, seat: int) -> dict:
                             f"in phase {engine.phase.name}")
     if engine.phase == Phase.DECLARE:
         return HeuristicPolicy().act(engine, seat, legal)
+    if "perete" in legal:
+        return {"action": "perete"}
     action = {"action": legal[0]}
     if engine.phase == Phase.MUS_DRAW:
         action["cards"] = [str(engine.hands[seat][0])]

@@ -1,0 +1,448 @@
+<meta charset="utf-8">
+<title>Mus Bench Replays</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one dark "nocturne" column (the live table's look): standings, the Elo race, then a felt table that replays a match. Single dark theme on purpose. */
+:root{
+  --bg:#07080d; --surface:#10121b; --raised:#171a26; --line:#262a3b;
+  --fg:#e9e9ed; --mut:#9097ad; --accent:#9b8ff0;
+  --team-a:#9b8ff0; --team-b:#e3b46b; --felt:#0f2a22; --felt-edge:#1d4a3b;
+  --win:#7fd4a2; --lose:#e88b8b;
+  --oros:#d9a930; --copas:#d4473f; --espadas:#4f7fd6; --bastos:#3f9a5c;
+  --card:#f4efe3; --card-ink:#2a2620; --chip:#e9e9ed;
+  --font:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --r:12px; --ease:cubic-bezier(.2,.7,.2,1);
+  --cw:38px; --ch:58px;
+  color-scheme:dark;
+}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.5}
+.wrap{max-width:1120px;margin:0 auto;padding-block:28px 64px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2{margin:0;text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:28px;font-weight:700}
+h2{font-size:19px;font-weight:600}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+.mut{color:var(--mut)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:end;justify-content:space-between;margin-bottom:28px}
+header p{margin:6px 0 0;max-width:62ch;color:var(--mut)}
+section{margin-top:36px}
+.sec-head{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin-bottom:14px}
+button,select{font:inherit;color:var(--fg);background:var(--raised);border:1px solid var(--line);
+  border-radius:8px;padding:6px 12px;cursor:pointer}
+button:hover,select:hover{border-color:var(--accent)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--accent);color:#120f24;border-color:var(--accent)}
+.logos{display:inline-flex;gap:4px;align-items:center;flex:none}
+.logos img{width:20px;height:20px;border-radius:5px;background:var(--chip);padding:2px}
+
+/* standings */
+.board{display:grid;gap:2px}
+.brow{display:grid;grid-template-columns:28px minmax(0,1.4fr) minmax(0,2fr) 64px 150px;gap:12px;align-items:center;
+  padding:9px 12px;border-radius:8px}
+.brow:nth-child(odd){background:var(--surface)}
+.brow .name{display:flex;gap:10px;align-items:center;min-width:0}
+.brow .name b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brow .name small{display:block;color:var(--mut);font-size:12px}
+.ci{position:relative;height:18px}
+.ci .axis{position:absolute;top:50%;left:0;right:0;height:1px;background:var(--line)}
+.ci .start{position:absolute;top:2px;bottom:2px;width:1px;background:var(--mut);opacity:.5}
+.ci .range{position:absolute;top:6px;height:6px;border-radius:3px;background:color-mix(in srgb,var(--accent) 35%,transparent)}
+.ci .dot{position:absolute;top:3px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--accent)}
+.brow.first .dot{background:var(--team-b)}
+.elo{font-size:18px;font-weight:700;text-align:right}
+.stats{font-size:12px;color:var(--mut);text-align:right;line-height:1.35}
+
+/* elo race */
+.race{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;overflow:hidden}
+.race-rows{position:relative}
+.rrow{position:absolute;left:0;right:0;height:34px;display:grid;grid-template-columns:190px minmax(0,1fr) 56px;gap:10px;align-items:center;
+  transition:transform .6s var(--ease)}
+.rrow .lbl{display:flex;gap:8px;align-items:center;min-width:0;font-size:13px}
+.rrow .lbl span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rrow .bar{height:18px;border-radius:4px;background:var(--raised);position:relative;overflow:hidden}
+.rrow .bar i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 55%,transparent),var(--accent));
+  border-radius:4px;transition:width .6s var(--ease)}
+.rrow.hl .bar i{background:linear-gradient(90deg,color-mix(in srgb,var(--team-b) 55%,transparent),var(--team-b))}
+.rrow .v{text-align:right;font-weight:600}
+.race-ctl{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+.race-ctl input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+.caption{min-height:1.5em;margin-top:8px;color:var(--mut);font-size:13px}
+.caption b{color:var(--fg)}
+
+/* theatre */
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ctl select{max-width:100%;min-width:0}
+.theatre{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;margin-top:12px}
+.table{display:grid;grid-template-columns:1fr minmax(0,1.35fr) 1fr;grid-template-rows:auto auto auto;gap:10px;
+  grid-template-areas:". s2 ." "s3 felt s1" ". s0 .";background:radial-gradient(ellipse at center,var(--felt) 0%,#0a1914 70%,var(--bg) 100%);
+  border:1px solid var(--felt-edge);border-radius:28px;padding:16px;min-width:0}
+.seat{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;position:relative}
+.seat[data-s="0"]{grid-area:s0}.seat[data-s="1"]{grid-area:s1}.seat[data-s="2"]{grid-area:s2}.seat[data-s="3"]{grid-area:s3}
+.tag{display:flex;gap:6px;align-items:center;font-size:12.5px;font-weight:600;max-width:100%}
+.tag .t{width:8px;height:8px;border-radius:50%;flex:none}
+.tag span.n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mano{font-size:10px;letter-spacing:.06em;text-transform:uppercase;background:var(--raised);border:1px solid var(--line);
+  border-radius:99px;padding:0 6px;color:var(--mut)}
+.hand{display:flex;gap:4px;justify-content:center;min-height:var(--ch)}
+.card{width:var(--cw);height:var(--ch);border-radius:5px;background:var(--card);color:var(--card-ink);position:relative;
+  box-shadow:0 2px 6px #0007;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  animation:deal .35s var(--ease) backwards;flex:none}
+.card .rk{font-family:var(--mono);font-size:13px;font-weight:600;line-height:1}
+.card .fig{font-size:8px;letter-spacing:.04em;text-transform:uppercase;line-height:1}
+.card svg{width:18px;height:18px}
+.card.back{background:repeating-linear-gradient(45deg,#2a2550 0 4px,#1f1b3d 4px 8px);border:2px solid #3a3470}
+.card.new{outline:2px solid var(--team-b)}
+@keyframes deal{from{opacity:0;transform:translateY(-14px) scale(.9)}}
+.bubble{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:6px 9px;font-size:12.5px;
+  max-width:240px;min-height:2.6em;text-align:center;transition:opacity .3s}
+.bubble.fresh{border-color:var(--accent);animation:pop .3s var(--ease)}
+.bubble b{display:block;font-size:13px}
+.bubble i{color:var(--mut);font-size:11.5px;display:block}
+.bubble.empty{opacity:0}
+@keyframes pop{from{transform:scale(.92);opacity:.4}}
+.felt{grid-area:felt;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;min-width:0}
+.stage{font-size:22px;font-weight:700;letter-spacing:.01em}
+.stake{font-family:var(--mono);font-size:13px;color:var(--team-b);min-height:1.4em}
+.score{display:grid;grid-template-columns:auto auto;gap:2px 14px;font-size:12.5px;align-items:center}
+.score .sv{font-family:var(--mono);font-weight:600;text-align:right}
+.lances{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;min-height:1.6em}
+.lances span{font-size:11.5px;padding:1px 8px;border-radius:99px;border:1px solid var(--line)}
+.log{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px;max-height:560px;overflow-y:auto;
+  font-size:12.5px;min-width:0}
+.log h3{margin:0 0 8px;font-size:13px;font-weight:600}
+.log ol{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.log li{padding:6px 8px;border-radius:6px;background:var(--raised)}
+.log li.cur{outline:1px solid var(--accent)}
+.log li small{color:var(--mut);display:block}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--mut);margin-top:10px}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+.legend i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.empty-note{padding:24px;text-align:center;color:var(--mut);background:var(--surface);border-radius:var(--r)}
+@media (max-width:860px){
+  .theatre{grid-template-columns:1fr}
+  .log{max-height:300px}
+  .brow{grid-template-columns:24px minmax(0,1fr) 56px;}
+  .brow .ci,.brow .stats{display:none}
+  .rrow{grid-template-columns:120px minmax(0,1fr) 48px}
+}
+@media (max-width:520px){
+  :root{--cw:26px;--ch:40px}
+  .card .fig{display:none}.card svg{width:13px;height:13px}.card .rk{font-size:11px}
+  .table{padding:10px;gap:6px;border-radius:18px}
+  .bubble{max-width:130px;font-size:11px}.bubble i{display:none}
+  .stage{font-size:17px}
+}
+/* frame mode: one still per step, 1280x720, for rendering a video */
+body.frame .wrap{max-width:none;padding:22px 28px}
+body.frame header,body.frame section:not(.keep),body.frame .ctl,body.frame .legend{display:none}
+body.frame section.keep{margin-top:0}
+body.frame .sec-head{display:none}
+body.frame .table{padding:12px 16px;gap:8px}
+body.frame .log{position:relative}
+body.frame .theatre{grid-template-columns:minmax(0,1fr) 330px;margin-top:0}
+body.frame .log{max-height:640px}
+body.frame *{animation:none!important;transition:none!important}
+body.frame .race{border:0;background:transparent;padding:0}
+body.frame .race-ctl{display:none}
+.ftitle{display:none}
+body.frame .ftitle{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow" id="tour">mus_bench</div>
+      <h1>Mus Bench Replays</h1>
+      <p>Language models play mus in teams of two against each other. Every model started at the same Elo; each game is two matches on the same cards with the seats swapped. Replay any match, decision by decision, with each model's own reason.</p>
+    </div>
+  </header>
+
+  <section aria-labelledby="h-stand">
+    <div class="sec-head"><h2 id="h-stand">Standings</h2><span class="mut" id="stand-sub"></span></div>
+    <div class="board" id="board"></div>
+  </section>
+
+  <div class="ftitle"><b id="ft-l">mus_bench</b><span class="mut mono" id="ft-r"></span></div>
+  <section aria-labelledby="h-race" id="sec-race">
+    <div class="sec-head"><h2 id="h-race">Elo race</h2><span class="mut">live Elo (K = 32), game by game</span></div>
+    <div class="race">
+      <div class="race-rows" id="race"></div>
+      <div class="race-ctl">
+        <button id="race-play" aria-pressed="false">Play</button>
+        <input type="range" id="race-k" min="0" max="0" value="0" aria-label="Game number">
+        <span class="mono mut" id="race-n"></span>
+      </div>
+      <div class="caption" id="race-cap"></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-match" id="sec-match">
+    <div class="sec-head"><h2 id="h-match">Match replay</h2><span class="mut" id="match-sub"></span></div>
+    <div class="ctl">
+      <select id="pick" aria-label="Match"></select>
+      <button id="play" aria-pressed="false">Play</button>
+      <button id="back" aria-label="Step back">◀</button>
+      <button id="fwd" aria-label="Step forward">▶</button>
+      <button id="speed">1×</button>
+      <button id="reveal" aria-pressed="true">All cards</button>
+    </div>
+    <div class="theatre">
+      <div class="table" id="table">
+        <div class="felt">
+          <div class="eyebrow" id="handno"></div>
+          <div class="stage" id="stage">–</div>
+          <div class="stake" id="stake"></div>
+          <div class="lances" id="lances"></div>
+          <div class="score" id="score"></div>
+        </div>
+      </div>
+      <div class="log"><h3 id="log-h">This hand</h3><ol id="log"></ol></div>
+    </div>
+    <div class="legend"><span><i style="background:var(--team-a)"></i>Team A · seats 0 + 2</span>
+      <span><i style="background:var(--team-b)"></i>Team B · seats 1 + 3</span>
+      <span>Outlined cards were just drawn after a discard</span></div>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let D;
+
+const SUIT = {
+  oros:`<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5" fill="var(--oros)"/><circle cx="10" cy="10" r="4" fill="none" stroke="#7a5a10" stroke-width="1.4"/></svg>`,
+  copas:`<svg viewBox="0 0 20 20"><path d="M4 3h12c0 6-2.5 9-6 9S4 9 4 3z" fill="var(--copas)"/><path d="M9 12h2v3h3v2H6v-2h3z" fill="var(--copas)"/></svg>`,
+  espadas:`<svg viewBox="0 0 20 20"><path d="M10 1l2.2 3v9H7.8V4z" fill="var(--espadas)"/><rect x="5" y="13" width="10" height="2" rx="1" fill="var(--espadas)"/><rect x="9" y="15" width="2" height="4" fill="#2c3f66"/></svg>`,
+  bastos:`<svg viewBox="0 0 20 20"><path d="M8.5 1.5c3.2-.4 5 2 4.2 5.4L11.4 18.5H8.6L7.6 7.6C6.3 5 6.4 1.8 8.5 1.5z" fill="var(--bastos)"/></svg>`};
+const RANK = {as:["1",""],dos:["2",""],tres:["3",""],cuatro:["4",""],cinco:["5",""],seis:["6",""],siete:["7",""],
+              sota:["10","sota"],caballo:["11","caballo"],rey:["12","rey"]};
+function cardEl(name, up, isNew){
+  if (!up) return el("div","card back");
+  const [rank, , suit] = String(name).split(" ");
+  const [n, fig] = RANK[rank] || ["?",""];
+  const c = el("div","card"+(isNew?" new":""), `<span class="rk">${n}</span>${SUIT[suit]||""}<span class="fig">${fig}</span>`);
+  c.title = name; return c;
+}
+const M = id => D.models[id] || {name:id, provider:"", provider_icon:"", model_icon:""};
+function logos(id){
+  const m = M(id), out = [];
+  for (const s of [m.provider_icon, m.model_icon]) if (s && !out.includes(s)) out.push(s);
+  return `<span class="logos">${out.map(s=>`<img src="icons/${s}.svg" alt="">`).join("")}</span>`;
+}
+const teamOf = s => s % 2 === 0 ? "A" : "B";
+const teamColor = t => t === "A" ? "var(--team-a)" : "var(--team-b)";
+
+/* ---------- standings ---------- */
+function drawBoard(){
+  const rows = [...D.leaderboard].sort((a,b)=>b.elo-a.elo);
+  const lo = Math.min(...rows.map(r=>r.ci_low)) - 20, hi = Math.max(...rows.map(r=>r.ci_high)) + 20;
+  const x = v => ((v-lo)/(hi-lo))*100;
+  const games = D.history.length;
+  $("#stand-sub").textContent = `${games} game${games===1?"":"s"} · ${games*2} matches · everyone started at ${D.start_elo}`;
+  const b = $("#board"); b.innerHTML = "";
+  rows.forEach((r,i)=>{
+    const m = M(r.model);
+    const row = el("div","brow"+(i===0&&r.games?" first":""));
+    row.innerHTML = `<span class="mono mut">${i+1}</span>
+      <span class="name">${logos(r.model)}<span style="min-width:0"><b>${esc(m.name)}</b><small>${esc(m.provider)}</small></span></span>
+      <span class="ci" aria-hidden="true"><span class="axis"></span><span class="start" style="left:${x(D.start_elo)}%"></span>
+        <span class="range" style="left:${x(r.ci_low)}%;width:${Math.max(x(r.ci_high)-x(r.ci_low),.5)}%"></span>
+        <span class="dot" style="left:${x(r.elo)}%"></span></span>
+      <span class="elo mono">${Math.round(r.elo)}</span>
+      <span class="stats mono">${r.games} games · ${r.record}<br>${r.per_hand>=0?"+":""}${(+r.per_hand).toFixed(1)} piedras/hand</span>`;
+    b.append(row);
+  });
+}
+
+/* ---------- elo race ---------- */
+let raceTimer = null;
+function drawRace(k){
+  const ids = Object.keys(D.models), H = D.history;
+  const snap = k === 0 ? Object.fromEntries(ids.map(i=>[i,D.start_elo])) : H[k-1].elo_live;
+  const all = H.flatMap(h=>Object.values(h.elo_live)).concat([D.start_elo]);
+  const lo = Math.min(...all) - 25, hi = Math.max(...all) + 10;
+  const order = [...ids].sort((a,b)=>snap[b]-snap[a]);
+  const box = $("#race"); box.style.height = (ids.length*38)+"px";
+  const g = k ? H[k-1] : null;
+  for (const id of ids){
+    let row = box.querySelector(`[data-id="${CSS.escape(id)}"]`);
+    if (!row){
+      row = el("div","rrow"); row.dataset.id = id;
+      row.innerHTML = `<span class="lbl">${logos(id)}<span>${esc(M(id).name)}</span></span><span class="bar"><i></i></span><span class="v mono"></span>`;
+      box.append(row);
+    }
+    row.style.transform = `translateY(${order.indexOf(id)*38}px)`;
+    row.querySelector("i").style.width = (((snap[id]-lo)/(hi-lo))*100).toFixed(1)+"%";
+    row.querySelector(".v").textContent = Math.round(snap[id]);
+    row.classList.toggle("hl", !!g && (g.x===id || g.y===id));
+  }
+  $("#race-k").max = H.length; $("#race-k").value = k;
+  $("#race-n").textContent = `game ${k} / ${H.length}`;
+  if (!g){ $("#race-cap").textContent = `Everyone starts at ${D.start_elo}.`; return; }
+  const [px,py] = g.piedras, w = g.score===1 ? g.x : g.score===0 ? g.y : null;
+  const l = w===g.x ? g.y : g.x;
+  $("#race-cap").innerHTML = w ? `<b>${esc(M(w).name)}</b> beat <b>${esc(M(l).name)}</b> ${Math.max(px,py)}–${Math.min(px,py)} piedras over both seatings (seed ${g.seed}).`
+                                : `<b>${esc(M(g.x).name)}</b> and <b>${esc(M(g.y).name)}</b> drew ${px}–${py}.`;
+}
+function raceToggle(){
+  const btn = $("#race-play");
+  if (raceTimer){ clearInterval(raceTimer); raceTimer=null; btn.textContent="Play"; btn.setAttribute("aria-pressed","false"); return; }
+  let k = +$("#race-k").value; if (k >= D.history.length) k = 0;
+  btn.textContent="Pause"; btn.setAttribute("aria-pressed","true");
+  drawRace(k);
+  raceTimer = setInterval(()=>{ k++; if (k > D.history.length){ raceToggle(); return; } drawRace(k); }, 1100);
+}
+
+/* ---------- match theatre ---------- */
+let match = null, steps = [], at = 0, timer = null, speed = 1, reveal = true;
+const STAGE_NAME = {MUS_REQUEST:"Mus",MUS_DRAW:"Discards",DECLARE:"Declarations",ENVITE:"Betting",ORDAGO_RESPONSE:"Órdago!"};
+function stageOf(e){ return e.stage || e.lance || (e.phase && e.phase.startsWith("MUS") ? "mus" : ""); }
+function label(e){
+  if (e.public) return e.public;
+  const a = e.action;
+  if (a==="discard") return `changes ${(e.cards||[]).length}`;
+  if (a==="no") return "no hay mus";
+  if (a==="tengo"||a==="no-tengo") return `${e.lance||""}: ${a==="tengo"?"tengo":"no tengo"}`;
+  return (e.lance?e.lance+": ":"")+a;
+}
+function buildSteps(m){
+  const out = [];
+  m.hands.forEach((h,hi)=>{
+    out.push({t:"deal",hi});
+    h.events.forEach((e,ei)=>out.push({t:"ev",hi,ei}));
+    out.push({t:"show",hi});
+  });
+  return out;
+}
+function stateAt(i){
+  const st = steps[i], h = match.hands[st.hi];
+  const cards = {}; for (const s of [0,1,2,3]) cards[s] = [...((h.dealt||{})[s]||[])];
+  const fresh = {}, bubbles = {}; let stage = "Mus", stake = "", unknown = false, lastSeat = null;
+  let ptsA = 0, ptsB = 0;
+  for (let k = 0; k < st.hi; k++){ const g = match.hands[k].gain||[0,0]; ptsA += g[0]||0; ptsB += g[1]||0; }
+  const log = [];
+  for (let j = 0; j <= i; j++){
+    const s = steps[j]; if (s.hi !== st.hi || s.t !== "ev") continue;
+    const e = h.events[s.ei];
+    for (const k of Object.keys(fresh)) delete fresh[k];
+    if (e.cards && e.action !== "discard" && e.action !== "perete"){}
+    if (e.action === "discard" || e.action === "perete"){
+      if (e.drew){ cards[e.seat] = cards[e.seat].filter(c=>!(e.cards||cards[e.seat]).includes(c)).concat(e.drew); e.drew.forEach(c=>fresh[c]=1); }
+      else unknown = true;
+    }
+    const sg = stageOf(e); stage = sg==="mus" ? (e.phase==="MUS_DRAW"?"Discards":"Mus") : (sg || stage);
+    if (e.phase==="ORDAGO_RESPONSE") stake = "ÓRDAGO on the table";
+    else if (e.action==="ordago") stake = "ÓRDAGO on the table";
+    else if (e.phase==="ENVITE" && e.stake) stake = `Bet: ${e.stake}`;
+    else if (e.phase!=="ENVITE") stake = "";
+    bubbles[e.seat] = {text:label(e), why:e.thought, auto:e.auto, j};
+    lastSeat = e.seat;
+    log.push({e, j});
+  }
+  if (unknown && (st.t==="show" || (st.t==="ev" && !String(h.events[st.ei]?.phase).startsWith("MUS"))))
+    for (const s of [0,1,2,3]) cards[s] = [...((h.showdown||{})[s]||cards[s])];
+  return {st, h, cards, fresh, bubbles, stage, stake, ptsA, ptsB, lastSeat, log};
+}
+function render(){
+  if (!match) return;
+  const S = stateAt(at), {st, h} = S;
+  const showAll = reveal || st.t === "show";
+  const table = $("#table");
+  for (const s of [0,1,2,3]){
+    let seat = table.querySelector(`.seat[data-s="${s}"]`);
+    if (!seat){ seat = el("div","seat"); seat.dataset.s = s; table.append(seat); }
+    const mid = match.seats[s].model, t = teamOf(s);
+    const b = S.bubbles[s];
+    const fresh = b && b.j === at;
+    seat.innerHTML = `<div class="tag"><span class="t" style="background:${teamColor(t)}"></span>${logos(mid)}<span class="n">${esc(M(mid).name)}</span>${h.mano===s?'<span class="mano">mano</span>':""}</div>`;
+    const hand = el("div","hand");
+    S.cards[s].forEach(c=>hand.append(cardEl(c, showAll, !!S.fresh[c] && st.t==="ev")));
+    seat.append(hand);
+    const bub = el("div","bubble"+(b?"":" empty")+(fresh?" fresh":""),
+      b ? `<b>${esc(b.text)}</b>${b.why && !b.auto ? `<i>“${esc(b.why)}”</i>` : ""}` : "&nbsp;");
+    seat.append(bub);
+  }
+  $("#handno").textContent = `Hand ${h.hand} of ${match.hands.length}`;
+  $("#stage").textContent = st.t==="deal" ? "Deal" : st.t==="show" ? "Showdown" : S.stage;
+  $("#stake").textContent = st.t==="show" ? `+${(h.gain||[0,0])[0]} A · +${(h.gain||[0,0])[1]} B` : S.stake;
+  const L = $("#lances"); L.innerHTML = "";
+  if (st.t==="show") for (const [lance,team] of Object.entries(h.lances||{})){
+    const sp = el("span",null,`${esc(lance)} ${team===0?"A":team===1?"B":"–"}`);
+    if (team!=null) sp.style.borderColor = teamColor(team===0?"A":"B");
+    L.append(sp);
+  }
+  const done = st.t==="show";
+  const a = S.ptsA + (done ? (h.gain||[0,0])[0] : 0), bb = S.ptsB + (done ? (h.gain||[0,0])[1] : 0);
+  $("#score").innerHTML = `<span style="color:var(--team-a)">Team A piedras</span><span class="sv">${a}</span>
+    <span style="color:var(--team-b)">Team B piedras</span><span class="sv">${bb}</span>`;
+  const ol = $("#log"); ol.innerHTML = "";
+  $("#log-h").textContent = `Hand ${h.hand}`;
+  for (const {e,j} of S.log){
+    const mid = match.seats[e.seat].model;
+    const li = el("li", j===at?"cur":"", `<b style="color:${teamColor(teamOf(e.seat))}">${esc(M(mid).name)}</b> · ${esc(label(e))}${e.thought&&!e.auto?`<small>${esc(e.thought)}</small>`:""}`);
+    ol.append(li);
+  }
+  const cur = ol.querySelector(".cur"), box = ol.parentElement;   // scroll the log only, never the page
+  if (cur) box.scrollTop = Math.max(0, cur.offsetTop - box.clientHeight + cur.offsetHeight + 12);
+  $("#match-sub").textContent = `step ${at+1} / ${steps.length}`;
+}
+function delay(){ const s = steps[at]; const base = s.t==="show" ? 3200 : s.t==="deal" ? 1400 : (match.hands[s.hi].events[s.ei].auto ? 500 : 1900); return base/speed; }
+function tick(){ if (at >= steps.length-1){ stop(); return; } at++; render(); timer = setTimeout(tick, delay()); }
+function stop(){ clearTimeout(timer); timer=null; $("#play").textContent="Play"; $("#play").setAttribute("aria-pressed","false"); }
+function play(){ if (timer){ stop(); return; } if (at >= steps.length-1) at = 0; $("#play").textContent="Pause"; $("#play").setAttribute("aria-pressed","true"); render(); timer = setTimeout(tick, delay()); }
+function load(i){
+  stop(); match = D.matches[i]; steps = buildSteps(match); at = 0;
+  render();
+}
+function matchLabel(m){
+  const a = M(m.seats[0].model).name, b = M(m.seats[1].model).name, r = m.result||{};
+  return `${a} vs ${b} · seed ${m.seed} · ${r.piedras_a}–${r.piedras_b}`;
+}
+
+async function boot(){
+  try { D = await (await fetch("data.json")).json(); }
+  catch(e){ document.querySelector(".wrap").append(el("p","empty-note","Could not load data.json.")); return; }
+  $("#tour").textContent = `mus_bench · tournament ${D.tournament} · ${D.protocol}`;
+  drawBoard(); drawRace(D.history.length);
+  $("#race-k").addEventListener("input", e=>{ if (raceTimer) raceToggle(); drawRace(+e.target.value); });
+  $("#race-play").addEventListener("click", raceToggle);
+  const pick = $("#pick");
+  if (!D.matches.length){ $(".theatre").replaceWith(el("p","empty-note","No finished matches yet.")); return; }
+  D.matches.forEach((m,i)=>pick.append(new Option(matchLabel(m), i)));
+  pick.addEventListener("change", e=>load(+e.target.value));
+  $("#play").addEventListener("click", play);
+  $("#back").addEventListener("click", ()=>{ stop(); at = Math.max(0, at-1); render(); });
+  $("#fwd").addEventListener("click", ()=>{ stop(); at = Math.min(steps.length-1, at+1); render(); });
+  $("#speed").addEventListener("click", e=>{ speed = speed===1?2:speed===2?4:1; e.target.textContent = speed+"×"; });
+  $("#reveal").addEventListener("click", e=>{ reveal = !reveal; e.target.setAttribute("aria-pressed", reveal); e.target.textContent = reveal?"All cards":"Table view"; render(); });
+  document.addEventListener("keydown", e=>{ if (e.target.tagName==="SELECT"||e.target.tagName==="INPUT") return;
+    if (e.key===" "){ e.preventDefault(); play(); } if (e.key==="ArrowRight") $("#fwd").click(); if (e.key==="ArrowLeft") $("#back").click(); });
+  const q = new URLSearchParams(location.search);
+  if (q.has("frame")){                      // still frames for the video renderer
+    document.body.classList.add("frame");
+    if (q.has("race")){
+      $("#sec-race").classList.add("keep");
+      const k = +q.get("race"); drawRace(k);
+      $("#ft-l").textContent = "Elo race · every model started at " + D.start_elo;
+      $("#ft-r").textContent = `game ${k} / ${D.history.length}`;
+    } else {
+      $("#sec-match").classList.add("keep");
+      load(+q.get("match") || 0); at = Math.min(+q.get("step") || 0, steps.length-1); render();
+      $("#ft-l").textContent = matchLabel(match);
+      $("#ft-r").textContent = `tournament ${D.tournament}`;
+    }
+    document.body.dataset.ready = "1";
+    return;
+  }
+  load(D.matches.length-1); pick.value = D.matches.length-1;
+  const auto = q.get("autoplay");
+  if (auto !== null){ speed = +auto || 2; $("#speed").textContent = speed+"×"; play(); }
+}
+boot();
+</script>
