@@ -145,12 +145,12 @@ if __name__ == "__main__":
 
 
 class ReplyParsingTest(unittest.TestCase):
-    def test_last_answer_counts_when_the_model_corrects_itself(self):
-        from musbench.agents.cli_seat import last_object
+    def test_a_self_correcting_reply_is_sent_back_not_guessed(self):
+        from musbench.agents.cli_seat import read_reply
         raw = ('{"choice": 1, "why": "keep the pair"}\n\nWait, correction needed: '
                'option 3 is better.\n{"choice": 3, "why": "change the as"}')
-        self.assertEqual(last_object(raw)["choice"], 3)
-        self.assertIsNone(last_object("no json here"))
+        self.assertIsNone(read_reply(raw)[0])
+        self.assertIsNone(read_reply("no json here")[0])
 
     def test_unreadable_reply_is_the_models_not_the_providers(self):
         from musbench.agents.cli_seat import CliAgent

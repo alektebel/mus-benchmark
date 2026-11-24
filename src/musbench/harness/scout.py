@@ -127,5 +127,11 @@ def write_report(agent, dossier_text: str, label: str = "Player X") -> str | Non
         rep = data.get("report") if isinstance(data, dict) else None
         if isinstance(rep, str) and len(rep.strip()) >= 20:
             return rep.strip()[:REPORT_MAX_CHARS]
-        ask = prompt + '\n\nThat was not a usable report. Reply with JSON only: {"report": "..."}'
+        if isinstance(data, dict) and "_error" in data:
+            problem = data["_error"]
+        else:
+            problem = 'it has no "report" text of at least a sentence'
+        ask = (prompt + f"\n\nYour previous reply could not be used: {problem}. "
+               'Submit the report again as exactly one JSON object and nothing else: '
+               '{"report": "..."}')
     return None

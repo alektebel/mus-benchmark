@@ -27,7 +27,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from musbench.agents.core import SeatBase, _extract_json
+from musbench.agents.core import SeatBase
 from musbench.live.apifail import LLMCallFailure, MatchTimeout
 
 CLI_TIMEOUT = float(os.environ.get("CLI_SEAT_TIMEOUT", "240"))
@@ -39,20 +39,37 @@ EFFORTS = {"claude-cli": ("low", "medium", "high", "xhigh", "max"),
            "codex-cli": ("minimal", "low", "medium", "high", "xhigh")}
 
 
-def last_object(text: str) -> dict | None:
-    """The last JSON object in a reply. A model that answers, then writes
-    "wait, correction" and answers again means its last answer."""
-    dec, found, i = json.JSONDecoder(), None, 0
-    while (i := text.find("{", i)) != -1:
-        try:
-            obj, end = dec.raw_decode(text, i)
-        except json.JSONDecodeError:
-            i += 1
-            continue
-        if isinstance(obj, dict):
-            found = obj
-        i = end
-    return found
+def read_reply(text: str) -> tuple[dict | None, str | None]:
+    """The reply as one JSON object, or (None, what is wrong with it).
+
+    Only a reply that is exactly one JSON object counts (a ```json fence is
+    fine). Two objects, or text after the object ("wait, correction..."),
+    is ambiguous: the model is told so and asked again rather than us
+    guessing which answer it meant."""
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`").strip()
+        if raw.lower().startswith("json"):
+            raw = raw[4:].strip()
+    start = raw.find("{")
+    if start == -1:
+        return None, "it has no JSON object"
+    try:
+        obj, end = json.JSONDecoder().raw_decode(raw, start)
+    except json.JSONDecodeError as e:
+        return None, f"its JSON is malformed ({e.msg})"
+    if not isinstance(obj, dict):
+        return None, "it is not a JSON object"
+    extra = (raw[:start] + raw[end:]).strip()
+    if extra:
+        return None, "it has text besides the one JSON object, so the answer is ambiguous"
+    return obj, None
+
+
+def menu_schema(n: int) -> dict:
+    return {"type": "object", "additionalProperties": False, "required": ["choice", "why"],
+            "properties": {"choice": {"type": "integer", "minimum": 1, "maximum": n},
+                           "why": {"type": "string"}}}
 
 
 class CliAgent(SeatBase):
@@ -83,21 +100,32 @@ class CliAgent(SeatBase):
             self._env["CODEX_HOME"] = str(home)
         self._init_state()
 
-    def _cmd(self, out_file: Path) -> list[str]:
+    def _cmd(self, out_file: Path, schema: dict | None = None) -> list[str]:
         if self.provider == "claude-cli":
             return ["claude", "-p", "--model", self.model, "--output-format", "json",
                     "--tools", "", "--setting-sources", "", "--strict-mcp-config",
                     "--no-session-persistence", "--system-prompt", SYSTEM,
-                    *(["--effort", self.effort] if self.effort else [])]
+                    *(["--effort", self.effort] if self.effort else []),
+                    *(["--json-schema", json.dumps(schema)] if schema else [])]
         if self.provider == "codex-cli":
+            extra = []
+            if schema:
+                sf = self._dir / "schema.json"
+                sf.write_text(json.dumps(schema))
+                extra = ["--output-schema", str(sf)]
             return ["codex", "exec", "-m", self.model, "-s", "read-only",
                     "-c", f'model_reasoning_effort="{self.effort}"',
-                    "--skip-git-repo-check", "--ephemeral",
+                    "--skip-git-repo-check", "--ephemeral", *extra,
                     "-o", str(out_file), "-"]
         return ["cursor-agent", "-p", "--model", self.model, "--output-format", "json",
                 "--mode", "ask", "--trust", "--workspace", str(self._dir)]
 
-    def decide(self, prompt: str) -> dict:
+    def decide(self, prompt: str, schema: dict | None = None) -> dict:
+        """One decision. CLI failures (exit, timeout) retry here and finally
+        raise LLMCallFailure. A reply the CLI delivered but that is not one
+        JSON object is the model's own answer: it comes back as
+        {"_error": why, "_raw": reply} so the harness can tell the model
+        what was wrong and ask again, like a failed tool call."""
         timeout = CLI_TIMEOUT
         if self.deadline is not None:
             remaining = self.deadline - time.monotonic()
@@ -111,7 +139,7 @@ class CliAgent(SeatBase):
             if attempt:
                 time.sleep(10 * attempt)         # ride out DNS / network blips
             try:
-                p = subprocess.run(self._cmd(out_file), input=text, cwd=self._dir,
+                p = subprocess.run(self._cmd(out_file, schema), input=text, cwd=self._dir,
                                    env=self._env, capture_output=True, text=True, timeout=timeout)
             except subprocess.TimeoutExpired:
                 last_err = "timeout"
@@ -121,19 +149,16 @@ class CliAgent(SeatBase):
                 continue
             self.calls += 1
             content = self._content(p.stdout, out_file)
-            try:
-                data = json.loads(_extract_json(content))
-            except json.JSONDecodeError:
-                data = last_object(content)
             self.last_io = {"prompt": prompt, "raw": content}
-            # The CLI worked, so an unreadable reply is the MODEL's answer:
-            # hand it back (as no choice) and let the harness re-ask it, then
-            # end the match as no_answer. Only CLI failures retry here.
-            return data if isinstance(data, dict) else {"_unparsed": content[:300]}
+            if isinstance(self._structured, dict):
+                return self._structured
+            data, err = read_reply(content)
+            return data if data is not None else {"_error": err, "_raw": content[:300]}
         self.api_errors += 1
         raise LLMCallFailure(f"{self.name}/{self.provider}:{self.model}: {last_err}")
 
     def _content(self, stdout: str, out_file: Path) -> str:
+        self._structured = None
         if self.provider == "codex-cli":
             return out_file.read_text() if out_file.exists() else stdout
         try:
@@ -146,4 +171,5 @@ class CliAgent(SeatBase):
             u.get("cache_creation_input_tokens") or 0)
         self.tokens_out += int(u.get("output_tokens") or 0)
         self.cost_usd += float(d.get("total_cost_usd") or 0)
+        self._structured = d.get("structured_output")
         return d.get("result") or d.get("text") or ""

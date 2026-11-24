@@ -87,7 +87,7 @@ class MenuMatchTest(unittest.TestCase):
                                     hands=2, seed=0)
         self.assertEqual(r["status"], "done")
         self.assertEqual(r["usage"]["fallbacks"], 0)
-        self.assertTrue(any("not a valid option" in p for _, p in prompts))
+        self.assertTrue(any("could not be used" in p for _, p in prompts))
 
     def test_a_model_that_never_answers_validly_ends_the_match_unscored(self):
         with mock.patch.object(StrictAgent, "decide", lambda self, p: {"choice": "banana"}):
@@ -222,3 +222,55 @@ class LaRealInMatchTest(unittest.TestCase):
                  mock.patch.object(StrictAgent, "decide", _fake_decide(Random(1), [])):
                 menu.run_menu_match(["m", "random", "m", "random"], hands=1, seed=0)
             self.assertIs(seen["engine"].la_real, v4)
+
+
+class ReplyFeedbackTest(unittest.TestCase):
+    """An unusable reply goes back to the model with the error, like a failed
+    tool call, and the model tries again; it never ends the match as a
+    provider failure."""
+
+    def test_reply_must_be_exactly_one_object(self):
+        from musbench.agents.cli_seat import read_reply
+        self.assertEqual(read_reply('```json\n{"choice": 2, "why": "x"}\n```')[0]["choice"], 2)
+        obj, err = read_reply('{"choice": 1, "why": "keep"}\n\nWait, correcting: option 2')
+        self.assertIsNone(obj)
+        self.assertIn("ambiguous", err)
+        self.assertIsNone(read_reply("I fold")[0])
+        self.assertIn("malformed", read_reply('{"choice": 1, "why": ')[1])
+
+    def test_corrected_model_is_told_and_its_retry_counts(self):
+        import json as _json
+        from types import SimpleNamespace
+        from musbench.agents.cli_seat import CliAgent
+        a = CliAgent("x", "claude-cli", "claude-haiku-5-5", 0, 0)
+        replies = iter(['{"choice": 1, "why": "keep"}\nWait, correction: option 2',
+                        '{"choice": 2, "why": "change the as"}'])
+        seen = []
+
+        def run(cmd, input, **kw):
+            seen.append(input)
+            return SimpleNamespace(returncode=0, stderr="",
+                                   stdout=_json.dumps({"result": next(replies)}))
+        with mock.patch("subprocess.run", side_effect=run):
+            c, why = menu.choose(a, "PROMPT", [("a", 1), ("b", 2), ("c", 3)])
+        self.assertEqual((c, why), (2, "change the as"))
+        self.assertEqual(len(seen), 2)
+        self.assertIn("could not be used", seen[1])
+        self.assertIn("ambiguous", seen[1])
+        self.assertIn("Wait, correction", seen[1])      # it sees its own reply
+        self.assertEqual(a.reasks, 1)
+
+    def test_structured_output_is_used_when_the_cli_returns_it(self):
+        import json as _json
+        from types import SimpleNamespace
+        from musbench.agents.cli_seat import CliAgent, menu_schema
+        a = CliAgent("x", "claude-cli", "claude-haiku-5-5", 0, 0)
+        out = SimpleNamespace(returncode=0, stderr="", stdout=_json.dumps(
+            {"result": "ignored", "structured_output": {"choice": 3, "why": "w"}}))
+        with mock.patch("subprocess.run", return_value=out) as run:
+            data = a.decide("P", schema=menu_schema(3))
+        self.assertEqual(data["choice"], 3)
+        cmd = run.call_args[0][0]
+        self.assertIn("--json-schema", cmd)
+        self.assertEqual(_json.loads(cmd[cmd.index("--json-schema") + 1])
+                         ["properties"]["choice"]["maximum"], 3)
