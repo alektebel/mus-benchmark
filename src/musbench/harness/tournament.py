@@ -41,7 +41,8 @@ def _safe(spec: str) -> str:
 
 def run_job(pairing: tuple[str, str], hands: int, seed: int, outdir: Path,
             job_timeout: float,
-            module: str = "musbench.harness.kernel_match") -> dict:
+            module: str = "musbench.harness.kernel_match",
+            extra: tuple = (), env_extra: dict | None = None) -> dict:
     a, b = pairing
     name = f"{_safe(a)}__vs__{_safe(b)}__seed{seed}"
     out = outdir / f"{name}.json"
@@ -57,10 +58,11 @@ def run_job(pairing: tuple[str, str], hands: int, seed: int, outdir: Path,
                # Abort early on cascade; post-hoc is_publishable_match still
                # marks silent finishes as degraded if the abort does not fire.
                MAX_FALLBACK_RATE=os.environ.get("MAX_FALLBACK_RATE", "0.20"),
-               FALLBACK_MIN_TURNS=os.environ.get("FALLBACK_MIN_TURNS", "12"))
+               FALLBACK_MIN_TURNS=os.environ.get("FALLBACK_MIN_TURNS", "12"),
+               **(env_extra or {}))
     cmd = [sys.executable, "-u", "-m", module,
            "--teams", a, b, "--hands", str(hands), "--seed", str(seed),
-           "--out", str(out), "--verbose"]
+           "--out", str(out), "--verbose", *map(str, extra)]
     t0 = time.time()
     with open(log, "w") as lf:
         try:

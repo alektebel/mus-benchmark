@@ -132,6 +132,40 @@ reading `models.toml` (`elo-1`) until the file is copied over.
   becomes `claude --effort` or Codex `model_reasoning_effort`, so each level is
   rated as its own player. Cursor and Jev have no effort setting here.
 
+### Scouting experiment `scout-1` (built, not run)
+
+Can a model beat a rival better after studying how that rival played? Code:
+`src/musbench/harness/scout.py` and `src/musbench/leaderboard/scouting.py`.
+
+* **Dossier.** Up to 12 of the rival's hands from the `elo-2` replays,
+  picking hands where it bet or answered a bet. Each hand shows every public
+  action in order, then all four hands as shown at the end, the lance winners
+  and the piedras. The rival's own reasons are never shown.
+* **Report.** Before the match the scouting model writes notes for itself, at
+  most 120 words, in JSON `{"report": ...}`. The notes go into every prompt of its
+  two seats. A model that never writes a usable report ends the match as
+  `no_answer`, like an invalid move. Jev cannot write reports, so it is only
+  scouted.
+* **Arms.** `control` plays plain v4-menu on the same seeds and both seatings.
+  `anon` calls the rival "Player X" and is the main arm. `named` (`--named`)
+  uses the rival's name and tests whether models also lean on beliefs about
+  other models, so read it only next to `anon`.
+* **No leaked deals.** Seeds start at 1000, and hands from any replay with the
+  match's own seed are skipped.
+* **Metric.** For each scouter, gain = its piedras/hand margin with the report
+  minus without it, on the same deals, with a bootstrap 95% CI
+  (`scout-report`). Skills such as rival read are compared across arms from the
+  replays. Results go to `benchmark/scout_<tag>.json`, and the reports themselves
+  are stored in each replay under `scout`.
+
+    MUSBENCH_CONFIG=benchmark/models-elo2.toml python -m musbench.leaderboard scout --dry-run
+    MUSBENCH_CONFIG=benchmark/models-elo2.toml python -m musbench.leaderboard scout-report
+
+* **Reply parsing.** This branch also changes how replies are read. When a
+  reply holds several JSON answers, the last one counts. A reply the CLI
+  returned but nobody can read goes back through the harness's re-ask and then
+  `no_answer`, instead of being retried blindly and logged as `provider_error`.
+
 ### A fresh tournament
 
 Only ledger rows tagged with `tournament` (in `benchmark/models.toml`) count.

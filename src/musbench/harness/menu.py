@@ -50,10 +50,12 @@ from musbench.observe.decision_log import (DecisionLog, build_decision,
 # (suits dropped -- they never matter in mus -- one rules block that comes
 # first so the CLI can cache it, explicit card orders per lance, discards
 # deduplicated by rank, compact showdowns). Pick with MENU_PROTOCOL.
+# v4-scout: v4-menu plus a scouting report the seat wrote before the match
+# (src/musbench/harness/scout.py). Seats without a report get plain v4 prompts.
 PROTOCOL = os.environ.get("MENU_PROTOCOL", "v3-menu")
-if PROTOCOL not in ("v3-menu", "v4-menu"):
+if PROTOCOL not in ("v3-menu", "v4-menu", "v4-scout"):
     raise SystemExit(f"unknown MENU_PROTOCOL {PROTOCOL!r}")
-V4 = PROTOCOL == "v4-menu"
+V4 = PROTOCOL in ("v4-menu", "v4-scout")
 MATCH_TIMEOUT = float(os.environ.get("MATCH_TIMEOUT", "5400"))
 MAX_TURNS_PER_HAND = 400
 # A seat that cannot produce a valid number this often is not being measured.
@@ -145,6 +147,7 @@ class PublicLog:
     def __init__(self):
         self.hand: list[tuple[int, str]] = []     # (seat, text) this hand
         self.past: list[str] = []                 # showdown summaries
+        self.scout: dict[int, str] = {}           # team -> its own scouting report
 
     def new_hand(self):
         self.hand = []
@@ -288,6 +291,9 @@ def _build_v4(engine, seat, log, options, hand_no, hands, team, hand, pares,
     lines = [RULES_V4,
              f"You are seat {seat}, team {'A (seats 0+2)' if team == 0 else 'B (seats 1+3)'}. "
              f"Partner: seat {(seat + 2) % 4}. Rivals: seats {(seat + 1) % 4} and {(seat + 3) % 4}.",
+             *([f"Your scouting notes on the rivals (seats {(seat + 1) % 4} and {(seat + 3) % 4}), "
+                "written by you before this match from their past hands:",
+                log.scout[team], ""] if log.scout.get(team) else []),
              f"Hand {hand_no} of {hands}. Mano: {_rel(seat, engine.mano)}. "
              f"Score: you {mine}, rivals {theirs} (vacas {mv}-{tv}).",
              f"Your cards: {_cards(hand)} -> {pares}; {juego}."]
@@ -406,7 +412,10 @@ def _auto(engine: MusEngine, seat: int) -> dict | None:
 
 def run_menu_match(models: list, hands: int = 8, seed: int = 0,
                    verbose: bool = False, decision_log: DecisionLog | None = None,
-                   hand_callback=None) -> dict:
+                   hand_callback=None, scout: dict | None = None) -> dict:
+    """`scout`, if given: {"team": 0|1, "dossier": str, ...}. Before the first
+    hand that team's model writes a scouting report from the dossier; the
+    report then goes into every prompt of that team's two seats."""
     if len(models) != 4:
         raise ValueError("exactly four model specs are required")
     t0 = time.monotonic()
@@ -421,12 +430,28 @@ def run_menu_match(models: list, hands: int = 8, seed: int = 0,
         if a.is_llm:
             a.deadline = deadline
     log = PublicLog()
+    scout_out = None
     stats = {"turns": 0, "llm_turns": 0, "fallbacks": 0, "invalid": 0}
     piedras_a = piedras_b = hwa = hwb = 0
     status, abort_reason, done = "done", None, 0
     va0 = vb0 = 0
     hand_rows = []
     try:
+        if scout:
+            from musbench.harness import scout as scouting
+            t_sc = time.monotonic()
+            try:
+                report = scouting.write_report(agents[scout["team"]], scout["dossier"],
+                                               scout.get("label", "Player X"))
+            except LLMCallFailure as e:
+                raise ProviderError(str(e)) from e
+            scout_out = {k: v for k, v in scout.items() if k != "dossier"} | {
+                "dossier": scout["dossier"], "report": report,
+                "seconds": round(time.monotonic() - t_sc, 2)}
+            if report is None:
+                raise NoAnswer(f"{agents[scout['team']].name}: no valid scouting report "
+                               f"after {ASKS} asks")
+            log.scout[scout["team"]] = report
         for h in range(1, hands + 1):
             engine.deal()
             dealt = dealt_snapshot(engine)
@@ -549,6 +574,7 @@ def run_menu_match(models: list, hands: int = 8, seed: int = 0,
     llm = [a for a in agents if a.is_llm]
     return {
         "protocol": PROTOCOL, "status": status, "abort_reason": abort_reason,
+        "scout": scout_out,
         "models": list(models), "seed": seed,
         "hands": hands, "hands_completed": done,
         "piedras_a": piedras_a, "piedras_b": piedras_b,
@@ -584,6 +610,13 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--scout", choices=("A", "B"),
+                    help="this team scouts its rivals before the match (v4-scout)")
+    ap.add_argument("--scout-rival", help="roster id of the rivals, as in the replays")
+    ap.add_argument("--scout-source", help="replay folder to scout from")
+    ap.add_argument("--scout-hands", type=int, default=12)
+    ap.add_argument("--scout-label", default="Player X",
+                    help="what the rivals are called (a name for the named arm)")
     args = ap.parse_args()
     if bool(args.teams) == bool(args.models):
         ap.error("give exactly one of --teams or --models")
@@ -599,7 +632,16 @@ def main():
                 with open(tmp, "w") as f:
                     json.dump(res, f, indent=2, ensure_ascii=False)
                 os.replace(tmp, args.out)
-        res = run_menu_match(models, hands=args.hands, seed=args.seed,
+        scout = None
+        if args.scout:
+            from musbench.harness import scout as scouting
+            hands_txt = scouting.dossier(args.scout_rival, args.scout_source,
+                                         k=args.scout_hands, match_seed=args.seed,
+                                         label=args.scout_label)
+            scout = {"team": 0 if args.scout == "A" else 1, "rival": args.scout_rival,
+                     "label": args.scout_label, "source": args.scout_source,
+                     "dossier": hands_txt}
+        res = run_menu_match(models, hands=args.hands, seed=args.seed, scout=scout,
                              verbose=args.verbose, decision_log=dlog,
                              hand_callback=lambda h, a, b: save(
                                  {"status": "running", "hands_completed": h,

@@ -77,6 +77,7 @@ def build(result: dict, decisions: list[dict], *, match_id: str,
         "result": {k: result.get(k) for k in ("piedras_a", "piedras_b", "vacas_a",
                                                "vacas_b", "hands_completed", "hands")},
         "usage": result.get("usage"),
+        **({"scout": result["scout"]} if result.get("scout") else {}),
         "hands": ordered,
     }
 

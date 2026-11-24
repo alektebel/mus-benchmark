@@ -8,6 +8,8 @@
                               seed, both seatings; append to the ledger
     score                     rate the ledger, rewrite README block + SVG + JSON
     icon SLUG                 download a LobeHub logo into benchmark/icons/
+    scout [--dry-run]         scouting experiment (see leaderboard/scouting.py)
+    scout-report              scouting gain per model, scout arm minus control
 
 The ledger (benchmark/matches.jsonl) is append-only and committed; it is the
 single source of truth for the score. `run` only plays matches the ledger
@@ -596,8 +598,12 @@ def main(argv=None):
     s.add_argument("--readme", default="README.md")
     s.add_argument("--svg", default="docs/leaderboard.svg")
     s.add_argument("--json", default="benchmark/leaderboard.json")
+    from musbench.leaderboard import scouting
+    scout_cmds = scouting.add_parsers(sub)
     args = ap.parse_args(argv)
     cfg, ledger = load_config(), load_ledger()
+    if args.cmd in scout_cmds:
+        return scout_cmds[args.cmd](cfg, ledger, args)
     {"list": cmd_list, "add": cmd_add, "schedule": cmd_schedule,
      "run": cmd_run, "score": cmd_score, "icon": cmd_icon,
      "swiss": cmd_swiss, "elo": cmd_elo, "backfill": cmd_backfill,

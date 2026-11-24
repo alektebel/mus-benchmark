@@ -39,6 +39,22 @@ EFFORTS = {"claude-cli": ("low", "medium", "high", "xhigh", "max"),
            "codex-cli": ("minimal", "low", "medium", "high", "xhigh")}
 
 
+def last_object(text: str) -> dict | None:
+    """The last JSON object in a reply. A model that answers, then writes
+    "wait, correction" and answers again means its last answer."""
+    dec, found, i = json.JSONDecoder(), None, 0
+    while (i := text.find("{", i)) != -1:
+        try:
+            obj, end = dec.raw_decode(text, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        if isinstance(obj, dict):
+            found = obj
+        i = end
+    return found
+
+
 class CliAgent(SeatBase):
     is_llm = True
 
@@ -108,12 +124,12 @@ class CliAgent(SeatBase):
             try:
                 data = json.loads(_extract_json(content))
             except json.JSONDecodeError:
-                last_err = f"no JSON in reply: {content[:200]!r}"
-                continue
-            if isinstance(data, dict):
-                self.last_io = {"prompt": prompt, "raw": content}
-                return data
-            last_err = "reply JSON is not an object"
+                data = last_object(content)
+            self.last_io = {"prompt": prompt, "raw": content}
+            # The CLI worked, so an unreadable reply is the MODEL's answer:
+            # hand it back (as no choice) and let the harness re-ask it, then
+            # end the match as no_answer. Only CLI failures retry here.
+            return data if isinstance(data, dict) else {"_unparsed": content[:300]}
         self.api_errors += 1
         raise LLMCallFailure(f"{self.name}/{self.provider}:{self.model}: {last_err}")
 
