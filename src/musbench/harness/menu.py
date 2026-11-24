@@ -121,6 +121,10 @@ class NoAnswer(Exception):
 
 
 ASKS = int(os.environ.get("MENU_ASKS", "3"))   # first ask + re-asks
+# MENU_SCHEMA=1: CLI seats answer through the CLI's structured output (a
+# schema-checked tool call) instead of free text. Costs ~550 input tokens a
+# call on Claude Code, so it is off by default; the re-ask below covers it.
+SCHEMA = os.environ.get("MENU_SCHEMA", "") not in ("", "0")
 
 
 # ------------------------------------------------------------ helpers ----
@@ -372,25 +376,48 @@ def _jev_choose(agent, prompt: str, labels: list[str]) -> int | None:
     return keys.index(choice) + 1 if choice in keys else None
 
 
+def _reask(prompt: str, n: int, problem: str, raw: str) -> str:
+    """The prompt again, with what was wrong with the last reply: the model
+    gets the error back the way a tool call returns one, and tries again."""
+    shown = " ".join(raw.split())[:200]
+    return (prompt + f"\n\nYour previous reply could not be used: {problem}."
+            + (f" It was: {shown!r}." if shown else "")
+            + f" Submit your decision again as exactly one JSON object and nothing "
+              f'else: {{"choice": <a number from 1 to {n}>, "why": "..."}}')
+
+
 def choose(agent, prompt: str, options: list) -> tuple[int | None, str]:
-    """Ask the seat; one re-ask on an invalid number. Returns (choice, why)."""
+    """Ask the seat, telling it what was wrong and asking again after an
+    unusable reply (ASKS asks in all). Returns (choice or None, why)."""
     n = len(options)
     is_jev = getattr(agent, "provider", "") == "typesafe"
+    schema = None
+    if SCHEMA and getattr(agent, "provider", "") in ("claude-cli", "codex-cli"):
+        from musbench.agents.cli_seat import menu_schema
+        schema = menu_schema(n)
     ask = prompt
     raw = ""
     for attempt in range(ASKS):
         if is_jev:
             c = _jev_choose(agent, ask, [label for label, _ in options])
             raw = (getattr(agent, "last_io", None) or {}).get("raw", "")
+            problem, reply = "it was not one of the options", raw
         else:
-            data = agent.decide(ask)      # JSON object; retries live inside
-            why = data.get("why") if isinstance(data, dict) else None
-            raw = str(why)[:400] if why else ""
-            c = _parse_choice(data, n)
+            data = agent.decide(ask, schema=schema) if schema else agent.decide(ask)
+            if isinstance(data, dict) and "_error" in data:
+                c, raw = None, ""
+                problem, reply = data["_error"], data.get("_raw", "")
+            else:
+                why = data.get("why") if isinstance(data, dict) else None
+                raw = str(why)[:400] if why else ""
+                c = _parse_choice(data, n)
+                got = data.get("choice") if isinstance(data, dict) else data
+                problem = f"choice {got!r} is not a number from 1 to {n}"
+                reply = json.dumps(data, ensure_ascii=False) if isinstance(data, dict) else str(data)
         if c is not None:
             return c, raw
-        ask = prompt + f"\n\nThat was not a valid option. Reply with JSON only: " \
-                       f'{{"choice": <a number from 1 to {n}>, "why": "..."}}'
+        agent.reasks = getattr(agent, "reasks", 0) + 1
+        ask = _reask(prompt, n, problem, reply)
     return None, raw
 
 
@@ -565,6 +592,7 @@ def run_menu_match(models: list, hands: int = 8, seed: int = 0,
         "agents": [{"name": a.name, "model": a.model, "seat": a.seat,
                     "is_llm": a.is_llm, "calls": a.calls,
                     "decisions": a.decisions, "invalid": a.invalid,
+                    "reasks": getattr(a, "reasks", 0),
                     "fallbacks": a.fallbacks, "api_errors": a.api_errors,
                     "rejections": 0, "tokens_in": a.tokens_in,
                     "tokens_out": a.tokens_out,
