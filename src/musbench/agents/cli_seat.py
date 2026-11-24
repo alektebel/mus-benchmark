@@ -72,6 +72,24 @@ def menu_schema(n: int) -> dict:
                            "why": {"type": "string"}}}
 
 
+_VERSIONS: dict[str, str] = {}
+_VERSION_CMD = {"claude-cli": ["claude", "--version"], "codex-cli": ["codex", "--version"],
+                "cursor-cli": ["cursor-agent", "--version"]}
+
+
+def cli_version(provider: str) -> str:
+    """The CLI's own version string, once per process, for reproducibility:
+    the CLIs wrap the model in their own prompts, which change by release."""
+    if provider not in _VERSIONS:
+        try:
+            p = subprocess.run(_VERSION_CMD[provider], capture_output=True, text=True,
+                               timeout=30)
+            _VERSIONS[provider] = (p.stdout or p.stderr).strip().splitlines()[0][:80]
+        except Exception:                        # noqa: BLE001 -- best effort
+            _VERSIONS[provider] = "unknown"
+    return _VERSIONS[provider]
+
+
 class CliAgent(SeatBase):
     is_llm = True
 

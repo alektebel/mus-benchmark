@@ -90,3 +90,15 @@ model_icon = "cursor"
 id = "typesafe:jev-latest"
 name = "Jev (TypeSafe)"
 spec = "typesafe:jev-latest"
+
+# Offline reference players (no API; added from round 3). They anchor what
+# "random" and "rule-based" look like on every metric against this pool.
+[[model]]
+id = "random"
+name = "Random (reference)"
+spec = "random"
+
+[[model]]
+id = "heuristic"
+name = "Heuristic (reference)"
+spec = "heuristic"

@@ -274,3 +274,37 @@ class ReplyFeedbackTest(unittest.TestCase):
         self.assertIn("--json-schema", cmd)
         self.assertEqual(_json.loads(cmd[cmd.index("--json-schema") + 1])
                          ["properties"]["choice"]["maximum"], 3)
+
+
+class EnglishTermsTest(unittest.TestCase):
+    """v4-en: the same prompt with every mus term in plain English."""
+
+    def setUp(self):
+        for name, val in (("V4", True), ("EN", True)):
+            p = mock.patch.object(menu, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _prompt(self, seed=0):
+        e = MusEngine(rng=Random(seed))
+        e.deal()
+        seat = e.current_seat
+        log = menu.PublicLog()
+        log.add((seat + 1) % 4, "no hay mus")
+        log.add((seat + 2) % 4, "Grande: envido")
+        return menu.build_menu_prompt(e, seat, log, menu.menu_options(e, seat), 1, 8)
+
+    def test_no_spanish_term_survives(self):
+        p = self._prompt()
+        self.assertTrue(p.startswith(menu.RULES_V4_EN))
+        self.assertIn("no redraw", p)
+        self.assertIn("Big: bet", p)
+        low = p.lower()
+        for word in ("envido", "quiero", "órdago", "grande", "chica", "piedras",
+                     "vaca", "mano", " mus", "sota", "caballo", "rey"):
+            self.assertNotIn(word, low, word)
+
+    def test_word_map_respects_word_edges(self):
+        self.assertEqual(menu.to_english("no-quiero -- fold"), "fold -- fold")
+        self.assertEqual(menu.to_english("quiero (4)"), "call (4)")
+        self.assertEqual(menu.to_english("compare, parade"), "compare, parade")

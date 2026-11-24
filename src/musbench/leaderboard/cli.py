@@ -206,7 +206,7 @@ def run_jobs(cfg, jobs, workers, outdir: Path, job_timeout: float,
     print(f"[leaderboard] {len(jobs)} matches -> raw results in {outdir}", flush=True)
     spec = lambda mid: cfg["models"][mid]["spec"]  # noqa: E731
     module = HARNESS_MODULES[cfg["harness"]]
-    if cfg["protocol"] in ("v3-menu", "v4-menu"):   # read by the subprocess
+    if cfg["protocol"] in ("v3-menu", "v4-menu", "v4-en"):   # read by the subprocess
         os.environ["MENU_PROTOCOL"] = cfg["protocol"]
     ok = 0
     failed: list[tuple] = []
@@ -259,6 +259,10 @@ def _save_replay(cfg, a, b, seed, result, outdir: Path, commit: str) -> dict:
               "model": (a if i % 2 == 0 else b),
               "spec": spec(a if i % 2 == 0 else b),
               "name": cfg["models"][a if i % 2 == 0 else b]["name"]} for i in range(4)]
+    versions = {ag.get("seat"): ag.get("cli_version") for ag in result.get("agents", [])}
+    for s in seats:
+        if versions.get(s["seat"]):
+            s["cli_version"] = versions[s["seat"]]
     rp = replay.build(result, replay.load_decisions(dec), match_id=match_id,
                       tournament=tag, seats=seats, commit=commit,
                       finished_at=finished)

@@ -51,9 +51,13 @@ from musbench.observe.decision_log import (DecisionLog, build_decision,
 # first so the CLI can cache it, explicit card orders per lance, discards
 # deduplicated by rank, compact showdowns). Pick with MENU_PROTOCOL.
 PROTOCOL = os.environ.get("MENU_PROTOCOL", "v3-menu")
-if PROTOCOL not in ("v3-menu", "v4-menu"):
+# v4-en: v4 with every mus term in plain English (Big/Small/Pairs/Total,
+# bet/call/fold/all-in, king/knight/jack...), to separate understanding the
+# Spanish vocabulary from playing well. Same information, same moves.
+if PROTOCOL not in ("v3-menu", "v4-menu", "v4-en"):
     raise SystemExit(f"unknown MENU_PROTOCOL {PROTOCOL!r}")
-V4 = PROTOCOL == "v4-menu"
+EN = PROTOCOL == "v4-en"
+V4 = PROTOCOL in ("v4-menu", "v4-en")
 MATCH_TIMEOUT = float(os.environ.get("MATCH_TIMEOUT", "5400"))
 MAX_TURNS_PER_HAND = 400
 # A seat that cannot produce a valid number this often is not being measured.
@@ -111,6 +115,69 @@ MUS RULES (40-card Spanish deck; suits never matter; 2 vs 2, partners sit opposi
 """
 
 
+RULES_V4_EN = """\
+CARD GAME RULES (40-card Spanish deck; suits never matter; 2 vs 2, partners sit opposite)
+- Four rounds in order: Big (high cards), Small (low cards), Pairs, Total
+  (31-40 points; if nobody has a total: Count, highest sum up to 30).
+  Compare best card first, then the next. A team plays the better of its two
+  hands. Ties go to the seat nearest the lead.
+- three counts as king and ace/two stay different, in every round.
+  Big, best to worst: king=three, knight, jack, seven, six, five, four, two, ace.
+  Small, best to worst: ace, two, four, five, six, seven, jack, knight, king=three.
+- Points: king, three, knight, jack = 10; ace, two = 1; others face value.
+- Pairs: one pair < three of a kind < two pairs (two pairs or four alike);
+  within a kind, higher cards win.
+- Total: the royal 31 (three sevens and a jack) > any other 31 > 32 >
+  40 > 39 > 38 > 37 > 36 > 35 > 34 > 33.
+- Only seats that HAVE pairs (or a total) bet in that round.
+- Bets: bet 2, raise +2, re-raise doubles, all-in = the whole game.
+  call accepts (paid when cards are shown at the end of the hand);
+  fold gives up. If both rivals fold, the bettor's team takes the previous
+  stake (1 if none) and the round.
+- An accepted all-in in a round is decided by that round alone. Before the
+  draw the lead may call all-in: the team that wins more of the four rounds
+  takes the game (Big breaks a 2-2 tie).
+- Redraw: if all four say redraw, everyone changes cards; one "no redraw" stops
+  it. A game is 40 points; both scores then reset.
+"""
+
+RANK_EN = {"rey": "king", "caballo": "knight", "sota": "jack", "siete": "seven",
+           "seis": "six", "cinco": "five", "cuatro": "four", "tres": "three",
+           "dos": "two", "as": "ace"}
+# Longest first, so "no hay mus" goes before "mus" and "no-quiero" before "quiero".
+TERMS_EN = [("no hay mus", "no redraw"), ("no-quiero", "fold"), ("no quiero", "fold"),
+            ("no tengo", "don't have"), ("reenvido", "re-raise"), ("y-yo", "raise"),
+            ("envido", "bet"), ("quiero", "call"), ("ÓRDAGO", "ALL-IN"),
+            ("órdago", "all-in"), ("ordago", "all-in"), ("tengo", "have"),
+            ("paso", "pass"), ("la real", "the royal 31"), ("Grande", "Big"),
+            ("Chica", "Small"), ("Pares", "Pairs"), ("Juego", "Total"),
+            ("Punto", "Count"), ("juego", "total"), ("punto", "count"),
+            ("medias", "three of a kind"), ("duples", "two pairs"), ("par", "one pair"),
+            ("piedras", "points"), ("vacas", "games"), ("vaca", "game"),
+            ("lances", "rounds"), ("lance", "round"), ("Mano", "Lead"), ("mano", "lead"),
+            ("Mus", "Redraw"), ("mus", "redraw")]
+_TERMS_RE = re.compile(r"(?<![\w-])(" + "|".join(re.escape(a) for a, _ in TERMS_EN)
+                       + r")(?![\w-])")
+_TERMS = dict(TERMS_EN)
+
+
+def to_english(text: str) -> str:
+    """The v4-en wording of a prompt line (card ranks are translated at source)."""
+    return _TERMS_RE.sub(lambda m: _TERMS[m.group(1)], text)
+
+
+def _cli_version(agent) -> str | None:
+    prov = getattr(agent, "provider", "")
+    if not prov.endswith("-cli"):
+        return None
+    from musbench.agents.cli_seat import cli_version
+    return cli_version(prov)
+
+
+def _rank(r: str) -> str:
+    return RANK_EN.get(r, r) if EN else r
+
+
 class ProviderError(Exception):
     """The seat's API/CLI failed after its own retries; replay the match."""
 
@@ -139,7 +206,7 @@ def _rel(seat: int, other: int) -> str:
 def _cards(cards) -> str:
     srt = sorted(cards, key=lambda c: -RANK_GRANDE.get(c.rank, 0))
     if V4:                                   # suits never matter in mus
-        return ", ".join(c.rank for c in srt)
+        return ", ".join(_rank(c.rank) for c in srt)
     return ", ".join(str(c) for c in srt)
 
 
@@ -289,7 +356,7 @@ def build_menu_prompt(engine: MusEngine, seat: int, log: PublicLog,
 def _build_v4(engine, seat, log, options, hand_no, hands, team, hand, pares,
               juego, mine, theirs, mv, tv) -> str:
     # The rules come first and never change, so the CLI can cache them.
-    lines = [RULES_V4,
+    lines = [RULES_V4_EN if EN else RULES_V4,
              f"You are seat {seat}, team {'A (seats 0+2)' if team == 0 else 'B (seats 1+3)'}. "
              f"Partner: seat {(seat + 2) % 4}. Rivals: seats {(seat + 1) % 4} and {(seat + 3) % 4}.",
              f"Hand {hand_no} of {hands}. Mano: {_rel(seat, engine.mano)}. "
@@ -305,6 +372,8 @@ def _build_v4(engine, seat, log, options, hand_no, hands, team, hand, pares,
     lines += [f"  {i}. {label}" for i, (label, _) in enumerate(options, 1)]
     lines += [f'Reply with JSON only: {{"choice": <1-{len(options)}>, '
               f'"why": "<one short sentence>"}}']
+    if EN:
+        return lines[0] + "\n" + to_english("\n".join(lines[1:]))
     return "\n".join(lines)
 
 
@@ -540,7 +609,7 @@ def run_menu_match(models: list, hands: int = 8, seed: int = 0,
             won = ", ".join(f"{j.name}->{'A(0+2)' if j.winner_team == 0 else 'B(1+3)' if j.winner_team == 1 else '-'}"
                             for j in engine.jugadas)
             if V4:
-                shown = " | ".join(f"s{s} {' '.join(c.rank for c in sorted(engine.hands[s], key=lambda c: -RANK_GRANDE.get(c.rank, 0)))}"
+                shown = " | ".join(f"s{s} {' '.join(_rank(c.rank) for c in sorted(engine.hands[s], key=lambda c: -RANK_GRANDE.get(c.rank, 0)))}"
                                    for s in range(4))
                 won = ", ".join(f"{j.name} {'A' if j.winner_team == 0 else 'B' if j.winner_team == 1 else '-'}"
                                 for j in engine.jugadas)
@@ -597,7 +666,8 @@ def run_menu_match(models: list, hands: int = 8, seed: int = 0,
                     "rejections": 0, "tokens_in": a.tokens_in,
                     "tokens_out": a.tokens_out,
                     "latency_s": round(a.latency, 1),
-                    "cost_usd": round(getattr(a, "cost_usd", 0.0), 4)} for a in agents],
+                    "cost_usd": round(getattr(a, "cost_usd", 0.0), 4),
+                    "cli_version": _cli_version(a)} for a in agents],
         "elapsed": round(time.monotonic() - t0, 1),
         "llm_seats": len(llm),
     }
